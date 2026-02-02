@@ -11,6 +11,9 @@ const TITLE_PROMPT =
 
 export const I18N = {
   "zh-CN": {
+    appTitle: "本地模型对话（Chrome Prompt API）",
+    brandTitle: "本地模型对话",
+    brandSub: "Chrome Prompt API",
     language: "语言",
     newChat: "新建对话",
     defaultTitle: "新对话",
@@ -31,6 +34,7 @@ export const I18N = {
     editMessage: "编辑消息",
     editCancel: "取消",
     editSave: "保存",
+    resend: "从此处重发",
     confirm: "确定",
     cancel: "取消",
     settings: "设置",
@@ -50,6 +54,9 @@ export const I18N = {
     locale: "zh-CN",
   },
   "en-US": {
+    appTitle: "Local Model Chat (Chrome Prompt API)",
+    brandTitle: "Local Model Chat",
+    brandSub: "Chrome Prompt API",
     language: "Language",
     newChat: "New Chat",
     defaultTitle: "New Chat",
@@ -70,6 +77,7 @@ export const I18N = {
     editMessage: "Edit Message",
     editCancel: "Cancel",
     editSave: "Save",
+    resend: "Resend from here",
     confirm: "Confirm",
     cancel: "Cancel",
     settings: "Settings",

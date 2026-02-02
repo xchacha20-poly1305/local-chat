@@ -52,7 +52,7 @@ const ChatMessage = memo(({ msg, index, isEditing, editDraft, lang }: ChatMessag
             {msg.role === "user" ? (
               <button
                 className="edit-resend"
-                title="从此处重发"
+                title={chatViewModel.t("resend")}
                 onClick={() => chatViewModel.resendFrom(index)}
               >
                 <RotateCcw aria-hidden="true" />
@@ -162,6 +162,7 @@ const App = () => {
   useEffect(() => {
     const lang = state.currentLang === "zh-CN" ? "zh-Hans" : "en";
     document.documentElement.lang = lang;
+    document.title = chatViewModel.t("appTitle");
   }, [state.currentLang]);
 
   useEffect(() => {
@@ -293,8 +294,8 @@ const App = () => {
       <div className="app" style={appStyle}>
         <aside className="sidebar">
           <div className="brand">
-            <div className="brand-title">本地模型对话</div>
-            <div className="brand-sub">Chrome Prompt API</div>
+            <div className="brand-title">{chatViewModel.t("brandTitle")}</div>
+            <div className="brand-sub">{chatViewModel.t("brandSub")}</div>
           </div>
           <div className="lang-switch">
             <label htmlFor="lang-select">{chatViewModel.t("language")}</label>
