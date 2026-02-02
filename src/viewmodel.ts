@@ -6,6 +6,9 @@ const SETTINGS_KEY = "local-chat-settings";
 const SIDEBAR_WIDTH_DEFAULT = 280;
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 420;
+const MAX_EMBED_BYTES = 1_500_000;
+const MAX_TEXT_CHARS = 8000;
+const MAX_PROMPT_TEXT_CHARS = 6000;
 const TITLE_PROMPT =
   "Given a conversation between a user and assistant, infer the language used, and generate a short, natural title in that same language. No punctuation. No framing. Just output the title.\n\nConversation:\nUser: {user}\nAssistant: {assistant}";
 
@@ -21,6 +24,13 @@ export const I18N = {
     delete: "删除",
     send: "发送",
     stop: "停止",
+    uploadFile: "上传文件",
+    attachPhoto: "拍照",
+    attachVideo: "拍视频",
+    attachments: "附件",
+    remove: "移除",
+    attachmentPreviewUnavailable: "预览不可用",
+    attachmentTemp: "预览仅当前会话可用",
     inputPlaceholder: "输入内容，按 Ctrl/⌘ + Enter 发送",
     statusStreaming: "模型输出中...",
     statusError: "发生错误：",
@@ -44,7 +54,7 @@ export const I18N = {
     themeLight: "日间",
     themeDark: "夜间",
     sendShortcut: "发送快捷键",
-    templateChat: "聊天提示词模板",
+    templateChat: "系统提示词",
     templateTitle: "标题总结模板",
     save: "保存",
     hintChat: "可用变量：{date} {language}",
@@ -64,6 +74,13 @@ export const I18N = {
     delete: "Delete",
     send: "Send",
     stop: "Stop",
+    uploadFile: "Upload",
+    attachPhoto: "Photo",
+    attachVideo: "Video",
+    attachments: "Attachments",
+    remove: "Remove",
+    attachmentPreviewUnavailable: "Preview unavailable",
+    attachmentTemp: "Preview available this session only",
     inputPlaceholder: "Type here, press Ctrl/⌘ + Enter to send",
     statusStreaming: "Model is responding...",
     statusError: "Error: ",
@@ -87,7 +104,7 @@ export const I18N = {
     themeLight: "Light",
     themeDark: "Dark",
     sendShortcut: "Send Shortcut",
-    templateChat: "Chat Prompt Template",
+    templateChat: "System Prompt",
     templateTitle: "Title Summary Template",
     save: "Save",
     hintChat: "Available variables: {date} {language}",
@@ -102,10 +119,26 @@ type Role = "user" | "assistant";
 type SendShortcut = "ctrlEnter" | "shiftEnter" | "enter";
 export type ThemeMode = "system" | "light" | "dark";
 
+export type AttachmentKind = "text" | "image" | "video";
+
+export type Attachment = {
+  id: string;
+  kind: AttachmentKind;
+  name: string;
+  mime: string;
+  size: number;
+  lastModified: number;
+  text?: string;
+  textTruncated?: boolean;
+  dataUrl?: string;
+  transientUrl?: string;
+};
+
 export type Message = {
   role: Role;
   content: string;
   ts: number;
+  attachments?: Attachment[];
 };
 
 export type History = {
@@ -120,7 +153,7 @@ export type History = {
 export type Settings = {
   sendShortcut: SendShortcut;
   theme: ThemeMode;
-  chatTemplate: string;
+  systemPrompt: string;
   titleTemplate: string;
   sidebarWidth: number;
 };
@@ -142,19 +175,43 @@ export type State = {
   renameTargetId: string | null;
   renameDraft: string;
   renameSource: RenameSource;
+  composerAttachments: Attachment[];
 };
 
 type Listener = () => void;
 
+type PromptTextPart = { type: "text"; value: string };
+type PromptImagePart = { type: "image"; value: Blob };
+type PromptAudioPart = { type: "audio"; value: Blob };
+type PromptPart = PromptTextPart | PromptImagePart | PromptAudioPart;
+type PromptMessage = { role: Role; content: PromptPart[] };
+type PromptInput = string | PromptMessage[];
+
+type InitialPrompt = { role: "system"; content: string };
+type ExpectedText = { type: "text"; languages?: string[] };
+type ExpectedInput = ExpectedText | { type: "image" } | { type: "audio" };
+type ExpectedOutput = ExpectedText;
+
 type PromptSession = {
-  prompt: (input: string) => Promise<string>;
-  promptStreaming?: (input: string) => AsyncIterable<string>;
+  prompt: (input: PromptInput) => Promise<string>;
+  promptStreaming?: (input: PromptInput) => AsyncIterable<string>;
+};
+
+type PromptCreateOptions = {
+  temperature: number;
+  topK: number;
+  initialPrompts?: InitialPrompt[];
+  expectedInputs?: ExpectedInput[];
+  expectedOutputs?: ExpectedOutput[];
 };
 
 type PromptAPI = {
-  availability: () => Promise<"no" | "available" | "downloadable" | "downloading">;
-  create: (options: { temperature: number; topK: number }) => Promise<PromptSession>;
+  availability: (options?: Pick<PromptCreateOptions, "expectedInputs" | "expectedOutputs">) => Promise<
+    "no" | "available" | "downloadable" | "downloading"
+  >;
+  create: (options: PromptCreateOptions) => Promise<PromptSession>;
 };
+
 
 type ApiAvailability =
   | "unknown"
@@ -163,6 +220,9 @@ type ApiAvailability =
   | "downloadable"
   | "downloading"
   | "ready";
+
+type PromptModality = "text" | "image" | "audio";
+type PromptSessionInfo = { session: PromptSession; modalities: Set<PromptModality> };
 
 const formatterOptions = {
   gfm: true,
@@ -188,7 +248,7 @@ export const renderMarkdown = (md: string) => {
 
 export class ChatViewModel {
   private listeners = new Set<Listener>();
-  private chatSessions = new Map<string, PromptSession>();
+  private chatSessions = new Map<string, PromptSessionInfo>();
   private readonly maxChatSessions = 8;
   private availabilityTimer: number | null = null;
   private availabilityInFlight = false;
@@ -216,6 +276,7 @@ export class ChatViewModel {
       renameTargetId: null,
       renameDraft: "",
       renameSource: null,
+      composerAttachments: [],
     };
 
     if (this.state.histories.length === 1 && !activeId) {
@@ -295,7 +356,7 @@ export class ChatViewModel {
     }
 
     try {
-      await this.createSession();
+      await this.createSession(this.textOnlyModalities());
       this.setApiAvailability("ready");
       this.availabilityInFlight = false;
     } catch {
@@ -325,6 +386,49 @@ export class ChatViewModel {
     });
   };
 
+  formatBytes = (value: number) => {
+    if (!Number.isFinite(value)) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    let size = Math.max(0, value);
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+    const precision = unitIndex === 0 ? 0 : size < 10 ? 1 : 0;
+    return `${size.toFixed(precision)} ${units[unitIndex]}`;
+  };
+
+  private getPromptLanguages = () => {
+    const lang = this.state.currentLang;
+    if (lang.toLowerCase().startsWith("en")) return ["en"];
+    if (lang.toLowerCase().startsWith("ja")) return ["ja"];
+    if (lang.toLowerCase().startsWith("es")) return ["es"];
+    return undefined;
+  };
+
+  private buildExpectedInputs = (modalities: Set<PromptModality>): ExpectedInput[] => {
+    const languages = this.getPromptLanguages();
+    const inputs: ExpectedInput[] = [
+      languages ? { type: "text", languages } : { type: "text" },
+    ];
+    if (modalities.has("image")) inputs.push({ type: "image" });
+    if (modalities.has("audio")) inputs.push({ type: "audio" });
+    return inputs;
+  };
+
+  private buildExpectedOutputs = (): ExpectedOutput[] => {
+    const languages = this.getPromptLanguages();
+    return [languages ? { type: "text", languages } : { type: "text" }];
+  };
+
+  private buildExpectedOptions = (modalities: Set<PromptModality>) => ({
+    expectedInputs: this.buildExpectedInputs(modalities),
+    expectedOutputs: this.buildExpectedOutputs(),
+  });
+
+  private textOnlyModalities = () => new Set<PromptModality>(["text"]);
+
   private templateDate = () => this.formatDate(Date.now());
 
   private applyTemplate = (template: string, vars: Record<string, string>) =>
@@ -335,7 +439,7 @@ export class ChatViewModel {
   private defaultSettings = (lang: keyof typeof I18N): Settings => ({
     sendShortcut: "ctrlEnter",
     theme: "system",
-    chatTemplate: "",
+    systemPrompt: "",
     titleTemplate: TITLE_PROMPT,
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
   });
@@ -346,8 +450,12 @@ export class ChatViewModel {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return this.defaultSettings(lang);
     try {
-      const parsed = JSON.parse(raw) as Partial<Settings>;
-      const next = { ...this.defaultSettings(lang), ...parsed };
+      const parsed = JSON.parse(raw) as Partial<Settings & { chatTemplate?: string }>;
+      const next = {
+        ...this.defaultSettings(lang),
+        ...parsed,
+        systemPrompt: parsed.systemPrompt ?? parsed.chatTemplate ?? "",
+      };
       return this.sanitizeSettings(next);
     } catch {
       return this.defaultSettings(lang);
@@ -369,18 +477,44 @@ export class ChatViewModel {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }
 
+  private serializeHistories(histories: History[]) {
+    return histories.map((history) => ({
+      ...history,
+      messages: history.messages.map((message) => ({
+        ...message,
+        attachments: message.attachments?.map((attachment) => {
+          const { transientUrl, ...rest } = attachment;
+          return rest;
+        }),
+      })),
+    }));
+  }
+
   private saveHistories(histories: History[]) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(histories));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.serializeHistories(histories)));
   }
 
   private loadHistories(): History[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     try {
-      return JSON.parse(raw) as History[];
+      const parsed = JSON.parse(raw) as History[];
+      return this.normalizeHistories(parsed);
     } catch {
       return [];
     }
+  }
+
+  private normalizeHistories(histories: History[]) {
+    return histories.map((history) => ({
+      ...history,
+      messages: history.messages.map((message) => ({
+        ...message,
+        attachments: message.attachments?.map((attachment) => ({
+          ...attachment,
+        })),
+      })),
+    }));
   }
 
   private initLanguage(): keyof typeof I18N {
@@ -397,6 +531,7 @@ export class ChatViewModel {
   setLanguage = (lang: keyof typeof I18N) => {
     if (!I18N[lang]) return;
     localStorage.setItem(LANG_KEY, lang);
+    this.chatSessions.clear();
     this.setState((prev) => ({
       ...prev,
       currentLang: lang,
@@ -417,6 +552,7 @@ export class ChatViewModel {
   };
 
   newChat = () => {
+    this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => {
       const history = this.createHistory(prev.currentLang);
       const histories = [history, ...prev.histories];
@@ -427,11 +563,13 @@ export class ChatViewModel {
         activeId: history.id,
         editingIndex: null,
         editDraft: "",
+        composerAttachments: [],
       };
     });
   };
 
   setActive = (id: string) => {
+    this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => ({
       ...prev,
       activeId: id,
@@ -440,6 +578,7 @@ export class ChatViewModel {
       renameTargetId: null,
       renameDraft: "",
       renameSource: null,
+      composerAttachments: [],
     }));
   };
 
@@ -451,12 +590,19 @@ export class ChatViewModel {
       }
       this.chatSessions.delete(activeId);
     }
+    const activeHistory = this.getActive();
+    if (activeHistory) {
+      this.revokeAttachments(
+        activeHistory.messages.flatMap((message) => message.attachments ?? [])
+      );
+    }
+    this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => {
       if (!prev.activeId) return prev;
       const histories = prev.histories.filter((h) => h.id !== prev.activeId);
       const activeId = histories[0]?.id ?? null;
       this.saveHistories(histories);
-      return { ...prev, histories, activeId };
+      return { ...prev, histories, activeId, composerAttachments: [] };
     });
   };
 
@@ -522,19 +668,112 @@ export class ChatViewModel {
   updateSettings = (next: Settings) => {
     const sanitized = this.sanitizeSettings(next);
     this.persistSettings(sanitized);
-    this.setState((prev) => ({ ...prev, settings: sanitized }));
+    this.setState((prev) => {
+      if (prev.settings.systemPrompt !== sanitized.systemPrompt) {
+        this.chatSessions.clear();
+      }
+      return { ...prev, settings: sanitized };
+    });
   };
 
   updateSettingsField = (patch: Partial<Settings>) => {
     this.setState((prev) => {
       const next = this.sanitizeSettings({ ...prev.settings, ...patch });
       this.persistSettings(next);
+      if (prev.settings.systemPrompt !== next.systemPrompt) {
+        this.chatSessions.clear();
+      }
       return { ...prev, settings: next };
     });
   };
 
   setSidebarWidth = (width: number) => {
     this.updateSettingsField({ sidebarWidth: width });
+  };
+
+  private fileStamp = () =>
+    new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-").replace("T", "_").replace("Z", "");
+
+  private limitText = (text: string, limit: number) => {
+    if (text.length <= limit) return { text, truncated: false };
+    return { text: `${text.slice(0, limit)}...`, truncated: true };
+  };
+
+  private readAsDataUrl = (file: Blob) =>
+    new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onerror = () => resolve(null);
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.readAsDataURL(file);
+    });
+
+  private getAttachmentKind = (file: File): AttachmentKind | null => {
+    const type = (file.type || "").toLowerCase();
+    if (type.startsWith("text/")) return "text";
+    if (type.startsWith("image/")) return "image";
+    if (type.startsWith("video/")) return "video";
+    const name = file.name.toLowerCase();
+    if (/\.(txt|md|csv|json|yaml|yml|log)$/.test(name)) return "text";
+    return null;
+  };
+
+  private async buildAttachment(file: File): Promise<Attachment | null> {
+    const kind = this.getAttachmentKind(file);
+    if (!kind) return null;
+    const attachment: Attachment = {
+      id: crypto.randomUUID(),
+      kind,
+      name: file.name || `${kind}-${this.fileStamp()}`,
+      mime: file.type || "application/octet-stream",
+      size: file.size,
+      lastModified: file.lastModified || Date.now(),
+    };
+
+    if (kind === "text") {
+      const raw = await file.text();
+      const preview = this.limitText(raw.trim(), MAX_TEXT_CHARS);
+      return {
+        ...attachment,
+        text: preview.text,
+        textTruncated: preview.truncated,
+      };
+    }
+
+    const transientUrl = URL.createObjectURL(file);
+    let dataUrl: string | undefined;
+    if (file.size <= MAX_EMBED_BYTES) {
+      const read = await this.readAsDataUrl(file);
+      if (read) dataUrl = read;
+    }
+    return { ...attachment, dataUrl, transientUrl };
+  }
+
+  addAttachmentsFromFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    const prepared = await Promise.all(list.map((file) => this.buildAttachment(file)));
+    const attachments = prepared.filter((item): item is Attachment => Boolean(item));
+    if (attachments.length === 0) return;
+    this.setState((prev) => ({
+      ...prev,
+      composerAttachments: [...prev.composerAttachments, ...attachments],
+    }));
+  };
+
+  removeComposerAttachment = (id: string) => {
+    const target = this.state.composerAttachments.find((item) => item.id === id);
+    if (target?.transientUrl) URL.revokeObjectURL(target.transientUrl);
+    this.setState((prev) => ({
+      ...prev,
+      composerAttachments: prev.composerAttachments.filter((item) => item.id !== id),
+    }));
+  };
+
+  private revokeAttachments = (attachments?: Attachment[]) => {
+    attachments?.forEach((attachment) => {
+      if (attachment.transientUrl) URL.revokeObjectURL(attachment.transientUrl);
+    });
   };
 
   openEdit = (index: number) => {
@@ -587,6 +826,9 @@ export class ChatViewModel {
   };
 
   deleteMessage = (index: number) => {
+    const active = this.getActive();
+    const target = active?.messages[index];
+    if (target?.attachments) this.revokeAttachments(target.attachments);
     this.setState((prev) => {
       const history = this.getActive(prev);
       if (!history) return prev;
@@ -641,8 +883,8 @@ export class ChatViewModel {
     const token = this.beginStreaming(targetId);
 
     try {
-      const prompt = this.buildChatPrompt(active);
-      const cancelled = await this.streamAssistant(prompt, targetId, token);
+      const { prompt, modalities } = await this.buildChatPrompt(active);
+      const cancelled = await this.streamAssistant(prompt, targetId, token, modalities);
       if (cancelled) return;
     } catch (err) {
       if (!token.cancelled) this.failAssistant(err, targetId);
@@ -653,28 +895,39 @@ export class ChatViewModel {
 
   sendMessage = async (text: string) => {
     if (this.state.streaming) return;
-    if (!this.getActive()) this.newChat();
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && this.state.composerAttachments.length === 0) return;
 
     this.setState((prev) => {
-      const active = this.getActive(prev);
-      if (!active) return prev;
+      let active = this.getActive(prev);
+      let histories = prev.histories;
+      if (!active) {
+        active = this.createHistory(prev.currentLang);
+        histories = [active, ...prev.histories];
+      }
+      const attachments = prev.composerAttachments;
       const messages: Message[] = [
         ...active.messages,
-        { role: "user", content: trimmed, ts: Date.now() },
+        {
+          role: "user",
+          content: trimmed,
+          ts: Date.now(),
+          attachments: attachments.length > 0 ? attachments : undefined,
+        },
         { role: "assistant", content: "", ts: Date.now() },
       ];
-      const histories = prev.histories.map((h) =>
+      const nextHistories = histories.map((h) =>
         h.id === active.id ? { ...h, messages, updatedAt: Date.now() } : h
       );
-      this.saveHistories(histories);
+      this.saveHistories(nextHistories);
       return {
         ...prev,
-        histories,
+        histories: nextHistories,
+        activeId: active.id,
         streaming: true,
         streamingId: active.id,
         statusText: this.t("statusStreaming"),
+        composerAttachments: [],
       };
     });
 
@@ -685,8 +938,8 @@ export class ChatViewModel {
 
     let cancelled = false;
     try {
-      const prompt = this.buildChatPrompt(active);
-      cancelled = await this.streamAssistant(prompt, targetId, token);
+      const { prompt, modalities } = await this.buildChatPrompt(active);
+      cancelled = await this.streamAssistant(prompt, targetId, token, modalities);
       if (cancelled) return;
     } catch (err) {
       if (!token.cancelled) this.failAssistant(err, targetId);
@@ -699,23 +952,93 @@ export class ChatViewModel {
   private getActive = (state: State = this.state) =>
     state.histories.find((h) => h.id === state.activeId) || null;
 
-  private buildPrompt = (history: History) =>
-    history.messages
-      .filter((m) => m.content && m.content.trim().length > 0)
-      .map((m) => `${m.role === "user" ? this.t("roleUser") : this.t("roleAssistant")}: ${m.content}`)
-      .join("\n");
+  private formatAttachmentLabel = (attachment: Attachment) =>
+    `Attachment (${attachment.kind}): ${attachment.name} (${this.formatBytes(attachment.size)})`;
 
-  private buildChatPrompt = (history: History) => {
-    const historyText = this.buildPrompt(history);
-    const template = this.state.settings.chatTemplate || "";
-    const systemPrompt = this.applyTemplate(template, {
+  private formatTextAttachment = (attachment: Attachment) => {
+    const preview = (attachment.text || "").trim();
+    const limited = this.limitText(preview, MAX_PROMPT_TEXT_CHARS);
+    if (limited.text) {
+      const suffix = attachment.textTruncated || limited.truncated ? "\n[truncated]" : "";
+      return `${this.formatAttachmentLabel(attachment)}\n${limited.text}${suffix}`;
+    }
+    return this.formatAttachmentLabel(attachment);
+  };
+
+  private async loadAttachmentBlob(attachment: Attachment) {
+    const source = attachment.dataUrl || attachment.transientUrl;
+    if (!source) return null;
+    try {
+      const response = await fetch(source);
+      if (!response.ok) return null;
+      return await response.blob();
+    } catch {
+      return null;
+    }
+  }
+
+  private async buildAttachmentParts(attachment: Attachment): Promise<PromptPart[]> {
+    if (attachment.kind === "text") {
+      return [{ type: "text", value: this.formatTextAttachment(attachment) }];
+    }
+    if (attachment.kind === "video") {
+      return [{ type: "text", value: this.formatAttachmentLabel(attachment) }];
+    }
+    const label = this.formatAttachmentLabel(attachment);
+    const blob = await this.loadAttachmentBlob(attachment);
+    if (!blob) {
+      return [{ type: "text", value: `${label}\n[preview unavailable]` }];
+    }
+    return [
+      { type: "text", value: label },
+      { type: "image", value: blob },
+    ];
+  }
+
+  private async buildPromptMessages(history: History): Promise<PromptMessage[]> {
+    const messages: PromptMessage[] = [];
+    for (const message of history.messages) {
+      const parts: PromptPart[] = [];
+      const content = message.content?.trim();
+      if (content) parts.push({ type: "text", value: content });
+      if (message.attachments?.length) {
+        for (const attachment of message.attachments) {
+          const attachmentParts = await this.buildAttachmentParts(attachment);
+          parts.push(...attachmentParts);
+        }
+      }
+      if (parts.length > 0) {
+        messages.push({ role: message.role, content: parts });
+      }
+    }
+    return messages;
+  }
+
+  private collectModalities(history: History) {
+    const modalities = new Set<PromptModality>(["text"]);
+    for (const message of history.messages) {
+      for (const attachment of message.attachments ?? []) {
+        if (attachment.kind === "image") {
+          modalities.add("image");
+        }
+      }
+    }
+    return modalities;
+  }
+
+  private async buildChatPrompt(history: History) {
+    const prompt = await this.buildPromptMessages(history);
+    return { prompt, modalities: this.collectModalities(history) };
+  }
+
+  private buildSystemPrompt = () => {
+    const template = this.state.settings.systemPrompt || "";
+    return this.applyTemplate(template, {
       date: this.templateDate(),
       language: this.state.currentLang,
     })
       .replaceAll("{history}", "")
       .trim();
-    if (!systemPrompt) return historyText;
-    return `${systemPrompt}\n\n${historyText}`;
   };
 
   private getPromptApi() {
@@ -750,7 +1073,8 @@ export class ChatViewModel {
 
     let availability: string;
     try {
-      availability = await lm.availability();
+      const expected = this.buildExpectedOptions(this.textOnlyModalities());
+      availability = await lm.availability(expected);
     } catch {
       if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
       this.availabilityTimer = null;
@@ -787,22 +1111,37 @@ export class ChatViewModel {
     this.availabilityInFlight = false;
   }
 
-  private async createSession() {
+  private async createSession(modalities: Set<PromptModality>) {
     const lm = this.getPromptApi();
-    const availability = await lm.availability();
+    const expected = this.buildExpectedOptions(modalities);
+    const availability = await lm.availability(expected);
     if (availability === "no") throw new Error("Prompt API 不可用");
-    return lm.create({ temperature: 0.7, topK: 40 });
+    const systemPrompt = this.buildSystemPrompt();
+    const initialPrompts = systemPrompt ? [{ role: "system", content: systemPrompt }] : undefined;
+    return lm.create({
+      temperature: 0.7,
+      topK: 40,
+      initialPrompts,
+      ...expected,
+    });
   }
 
-  private async getChatSession(historyId: string) {
+  private hasModalities = (owned: Set<PromptModality>, needed: Set<PromptModality>) => {
+    for (const modality of needed) {
+      if (!owned.has(modality)) return false;
+    }
+    return true;
+  };
+
+  private async getChatSession(historyId: string, modalities: Set<PromptModality>) {
     const existing = this.chatSessions.get(historyId);
-    if (existing) {
+    if (existing && this.hasModalities(existing.modalities, modalities)) {
       this.chatSessions.delete(historyId);
       this.chatSessions.set(historyId, existing);
-      return existing;
+      return existing.session;
     }
-    const session = await this.createSession();
-    this.chatSessions.set(historyId, session);
+    const session = await this.createSession(modalities);
+    this.chatSessions.set(historyId, { session, modalities: new Set(modalities) });
     if (this.chatSessions.size > this.maxChatSessions) {
       const oldestKey = this.chatSessions.keys().next().value as string | undefined;
       if (oldestKey) this.chatSessions.delete(oldestKey);
@@ -835,12 +1174,13 @@ export class ChatViewModel {
   };
 
   private async streamAssistant(
-    prompt: string,
+    prompt: PromptInput,
     historyId: string,
-    token: { historyId: string; cancelled: boolean }
+    token: { historyId: string; cancelled: boolean },
+    modalities: Set<PromptModality>
   ) {
     if (token.cancelled) return true;
-    const session = await this.getChatSession(historyId);
+    const session = await this.getChatSession(historyId, modalities);
     if (token.cancelled) return true;
     if (session.promptStreaming) {
       let output = "";
@@ -905,7 +1245,7 @@ export class ChatViewModel {
     }
 
     try {
-      const session = await this.createSession();
+      const session = await this.createSession(this.textOnlyModalities());
       const prompt = this.applyTemplate(this.state.settings.titleTemplate, {
         date: this.templateDate(),
         language: this.state.currentLang,

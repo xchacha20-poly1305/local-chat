@@ -1,15 +1,23 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  ClipboardEvent,
+  KeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import {
+  Camera,
   Check,
+  Paperclip,
   Pencil,
   RotateCcw,
   Square,
   Trash2,
+  Video,
   X,
 } from "lucide-react";
 import { chatViewModel, I18N, renderMarkdown } from "./viewmodel";
-import type { Message } from "./viewmodel";
+import type { Attachment, Message } from "./viewmodel";
 
 type ChatMessageProps = {
   msg: Message;
@@ -17,6 +25,71 @@ type ChatMessageProps = {
   isEditing: boolean;
   editDraft: string;
   lang: keyof typeof I18N;
+};
+
+type AttachmentCardProps = {
+  attachment: Attachment;
+  compact?: boolean;
+  onRemove?: () => void;
+};
+
+const getAttachmentPreviewUrl = (attachment: Attachment) =>
+  attachment.dataUrl || attachment.transientUrl || "";
+
+const AttachmentCard = ({ attachment, compact = false, onRemove }: AttachmentCardProps) => {
+  const previewUrl = getAttachmentPreviewUrl(attachment);
+  const sizeLabel = chatViewModel.formatBytes(attachment.size);
+  const showTempNote = Boolean(attachment.transientUrl && !attachment.dataUrl);
+  const textPreview = attachment.text?.trim() || "";
+  return (
+    <div className={`attachment ${compact ? "compact" : ""}`}>
+      <div className="attachment-head">
+        <div className="attachment-name">{attachment.name}</div>
+        <div className="attachment-size">{sizeLabel}</div>
+      </div>
+      {attachment.kind === "text" ? (
+        <pre className="attachment-text">
+          {textPreview || chatViewModel.t("attachmentPreviewUnavailable")}
+        </pre>
+      ) : null}
+      {attachment.kind === "image" ? (
+        previewUrl ? (
+          <img src={previewUrl} alt={attachment.name} loading="lazy" />
+        ) : (
+          <div className="attachment-placeholder">
+            {chatViewModel.t("attachmentPreviewUnavailable")}
+          </div>
+        )
+      ) : null}
+      {attachment.kind === "video" ? (
+        previewUrl ? (
+          <video
+            src={previewUrl}
+            controls={!compact}
+            muted={compact}
+            playsInline
+            preload="metadata"
+          />
+        ) : (
+          <div className="attachment-placeholder">
+            {chatViewModel.t("attachmentPreviewUnavailable")}
+          </div>
+        )
+      ) : null}
+      {showTempNote ? (
+        <div className="attachment-note">{chatViewModel.t("attachmentTemp")}</div>
+      ) : null}
+      {onRemove ? (
+        <button
+          className="attachment-remove"
+          title={chatViewModel.t("remove")}
+          onClick={onRemove}
+        >
+          <X aria-hidden="true" />
+        </button>
+      ) : null}
+    </div>
+  );
 };
 
 const ChatMessage = memo(({ msg, index, isEditing, editDraft, lang }: ChatMessageProps) => {
@@ -96,6 +169,13 @@ const ChatMessage = memo(({ msg, index, isEditing, editDraft, lang }: ChatMessag
       ) : (
         <div dangerouslySetInnerHTML={{ __html: html }}></div>
       )}
+      {msg.attachments && msg.attachments.length > 0 ? (
+        <div className="message-attachments">
+          {msg.attachments.map((attachment) => (
+            <AttachmentCard key={attachment.id} attachment={attachment} />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 });
@@ -103,7 +183,7 @@ const ChatMessage = memo(({ msg, index, isEditing, editDraft, lang }: ChatMessag
 type SettingsDraft = {
   sendShortcut: "ctrlEnter" | "shiftEnter" | "enter";
   theme: "system" | "light" | "dark";
-  chatTemplate: string;
+  systemPrompt: string;
   titleTemplate: string;
   sidebarWidth: number;
 };
@@ -114,6 +194,9 @@ const App = () => {
   const chatRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const apiDialogRef = useRef<HTMLDialogElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const resizeRef = useRef({ startX: 0, startWidth: 0, active: false });
   const autoScrollRef = useRef(true);
   const lastActiveIdRef = useRef<string | null>(null);
@@ -256,7 +339,7 @@ const App = () => {
   const handleSend = async () => {
     if (!inputRef.current) return;
     const text = inputRef.current.value;
-    if (!text.trim()) return;
+    if (!text.trim() && state.composerAttachments.length === 0) return;
     inputRef.current.value = "";
     await chatViewModel.sendMessage(text);
   };
@@ -279,6 +362,20 @@ const App = () => {
       event.preventDefault();
       void handleSend();
     }
+  };
+
+  const onInputPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = event.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+    if (files.length === 0) return;
+    event.preventDefault();
+    void chatViewModel.addAttachmentsFromFiles(files);
   };
 
   const renameInputHandlers = {
@@ -439,30 +536,118 @@ const App = () => {
           </section>
 
           <footer className="composer">
-            <textarea
-              id="input"
-              ref={inputRef}
-              placeholder={chatViewModel.t("inputPlaceholder")}
-              rows={3}
-              onKeyDown={onInputKeyDown}
-            ></textarea>
+            <div className="composer-input">
+              <textarea
+                id="input"
+                ref={inputRef}
+                placeholder={chatViewModel.t("inputPlaceholder")}
+                rows={3}
+                onKeyDown={onInputKeyDown}
+                onPaste={onInputPaste}
+              ></textarea>
+              {state.composerAttachments.length > 0 ? (
+                <div className="composer-attachments">
+                  {state.composerAttachments.map((attachment) => (
+                    <AttachmentCard
+                      key={attachment.id}
+                      attachment={attachment}
+                      compact
+                      onRemove={() => chatViewModel.removeComposerAttachment(attachment.id)}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <div className="composer-actions">
-              {state.streaming ? (
+              <div className="composer-tools">
                 <button
-                  className="btn stop"
-                  onClick={handleStop}
-                  title={chatViewModel.t("stop")}
-                  aria-label={chatViewModel.t("stop")}
+                  className="icon-btn"
+                  title={chatViewModel.t("uploadFile")}
+                  aria-label={chatViewModel.t("uploadFile")}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={state.streaming}
                 >
-                  <Square aria-hidden="true" />
+                  <Paperclip aria-hidden="true" />
                 </button>
-              ) : (
-                <button className="btn primary" onClick={() => void handleSend()}>
-                  {chatViewModel.t("send")}
+                <button
+                  className="icon-btn"
+                  title={chatViewModel.t("attachPhoto")}
+                  aria-label={chatViewModel.t("attachPhoto")}
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={state.streaming}
+                >
+                  <Camera aria-hidden="true" />
                 </button>
-              )}
+                <button
+                  className="icon-btn"
+                  title={chatViewModel.t("attachVideo")}
+                  aria-label={chatViewModel.t("attachVideo")}
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={state.streaming}
+                >
+                  <Video aria-hidden="true" />
+                </button>
+              </div>
+              <div className="composer-send">
+                {state.streaming ? (
+                  <button
+                    className="btn stop"
+                    onClick={handleStop}
+                    title={chatViewModel.t("stop")}
+                    aria-label={chatViewModel.t("stop")}
+                  >
+                    <Square aria-hidden="true" />
+                  </button>
+                ) : (
+                  <button className="btn primary" onClick={() => void handleSend()}>
+                    {chatViewModel.t("send")}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="status">{state.statusText}</div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="visually-hidden"
+              accept="text/*,image/*,video/*"
+              multiple
+              onChange={(event) => {
+                const files = event.currentTarget.files;
+                if (files && files.length > 0) {
+                  void chatViewModel.addAttachmentsFromFiles(files);
+                }
+                event.currentTarget.value = "";
+              }}
+            />
+            <input
+              ref={photoInputRef}
+              type="file"
+              className="visually-hidden"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => {
+                const files = event.currentTarget.files;
+                if (files && files.length > 0) {
+                  void chatViewModel.addAttachmentsFromFiles(files);
+                }
+                event.currentTarget.value = "";
+              }}
+            />
+            <input
+              ref={videoInputRef}
+              type="file"
+              className="visually-hidden"
+              accept="video/*"
+              capture="environment"
+              onChange={(event) => {
+                const files = event.currentTarget.files;
+                if (files && files.length > 0) {
+                  void chatViewModel.addAttachmentsFromFiles(files);
+                }
+                event.currentTarget.value = "";
+              }}
+            />
           </footer>
         </main>
       </div>
@@ -534,13 +719,13 @@ const App = () => {
           </div>
 
           <div className="settings-row">
-            <label htmlFor="chat-template">{chatViewModel.t("templateChat")}</label>
+            <label htmlFor="system-prompt">{chatViewModel.t("templateChat")}</label>
             <textarea
-              id="chat-template"
+              id="system-prompt"
               rows={5}
-              value={draftSettings.chatTemplate}
+              value={draftSettings.systemPrompt}
               onChange={(event) =>
-                setDraftSettings((prev) => ({ ...prev, chatTemplate: event.target.value }))
+                setDraftSettings((prev) => ({ ...prev, systemPrompt: event.target.value }))
               }
             ></textarea>
             <div className="settings-hint">{chatViewModel.t("hintChat")}</div>

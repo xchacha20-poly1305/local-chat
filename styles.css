@@ -170,6 +170,14 @@ body.resizing {
   transition: transform 0.1s ease, border 0.2s ease;
 }
 
+.btn:disabled,
+.icon-btn:disabled,
+.attachment-remove:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btn:hover {
   transform: translateY(-1px);
   border-color: #3a445a;
@@ -464,9 +472,39 @@ body.resizing {
   padding: 16px 20px 12px;
   background: var(--composer-bg);
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.composer-input {
+  display: grid;
+  gap: 8px;
+}
+
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.composer-actions {
+  display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.composer-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.composer-send {
+  margin-left: auto;
+  display: flex;
 }
 
 textarea {
@@ -478,6 +516,128 @@ textarea {
   color: var(--text);
   padding: 10px 12px;
   font-size: 14px;
+}
+
+.message-attachments {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.attachment {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+
+.attachment.compact {
+  width: 200px;
+}
+
+.attachment-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.attachment-name {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-size {
+  white-space: nowrap;
+}
+
+.attachment-text {
+  background: var(--code);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.attachment.compact .attachment-text {
+  max-height: 90px;
+}
+
+.attachment img,
+.attachment video {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--code);
+}
+
+.attachment.compact img,
+.attachment.compact video {
+  max-height: 120px;
+}
+
+.attachment-placeholder {
+  background: var(--code);
+  border-radius: 10px;
+  padding: 18px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+}
+
+.attachment-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.attachment-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.attachment-remove:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.attachment-remove svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 
 .status {
@@ -584,6 +744,7 @@ textarea {
   display: flex;
   justify-content: flex-end;
 }
+
 
 
 @media (max-width: 900px) {
