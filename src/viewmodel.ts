@@ -1,0 +1,948 @@
+import { marked } from "marked";
+
+const STORAGE_KEY = "local-chat-histories";
+const LANG_KEY = "local-chat-language";
+const SETTINGS_KEY = "local-chat-settings";
+const SIDEBAR_WIDTH_DEFAULT = 280;
+const SIDEBAR_WIDTH_MIN = 220;
+const SIDEBAR_WIDTH_MAX = 420;
+const TITLE_PROMPT =
+  "Given a conversation between a user and assistant, infer the language used, and generate a short, natural title in that same language. No punctuation. No framing. Just output the title.\n\nConversation:\nUser: {user}\nAssistant: {assistant}";
+
+export const I18N = {
+  "zh-CN": {
+    language: "语言",
+    newChat: "新建对话",
+    defaultTitle: "新对话",
+    rename: "重命名",
+    delete: "删除",
+    send: "发送",
+    stop: "停止",
+    inputPlaceholder: "输入内容，按 Ctrl/⌘ + Enter 发送",
+    statusStreaming: "模型输出中...",
+    statusError: "发生错误：",
+    apiChromeOnly: "仅支持 Chrome 浏览器，请使用 Chrome 运行此应用。",
+    apiDownloadable:
+      "Prompt API 可下载，请打开 chrome://components，点击 Optimization Guide On Device Model 的 Update 按钮。",
+    apiDownloading: "Prompt API 正在下载中...（每 1 秒检测一次）",
+    apiNeedFlag: "Prompt API 不可用，请开启 chrome://flags/#prompt-api-for-gemini-nano。",
+    apiTitle: "Prompt API",
+    apiForceUse: "强制使用",
+    editMessage: "编辑消息",
+    editCancel: "取消",
+    editSave: "保存",
+    confirm: "确定",
+    cancel: "取消",
+    settings: "设置",
+    close: "关闭",
+    theme: "主题",
+    themeSystem: "跟随系统",
+    themeLight: "日间",
+    themeDark: "夜间",
+    sendShortcut: "发送快捷键",
+    templateChat: "聊天提示词模板",
+    templateTitle: "标题总结模板",
+    save: "保存",
+    hintChat: "可用变量：{date} {language}",
+    hintTitle: "可用变量：{date} {language} {user} {assistant}",
+    roleUser: "用户",
+    roleAssistant: "助手",
+    locale: "zh-CN",
+  },
+  "en-US": {
+    language: "Language",
+    newChat: "New Chat",
+    defaultTitle: "New Chat",
+    rename: "Rename",
+    delete: "Delete",
+    send: "Send",
+    stop: "Stop",
+    inputPlaceholder: "Type here, press Ctrl/⌘ + Enter to send",
+    statusStreaming: "Model is responding...",
+    statusError: "Error: ",
+    apiChromeOnly: "This app only supports Chrome. Please use Chrome.",
+    apiDownloadable:
+      "Prompt API is downloadable. Open chrome://components and click Update for Optimization Guide On Device Model.",
+    apiDownloading: "Prompt API is downloading... (checking every 1s)",
+    apiNeedFlag: "Prompt API is unavailable. Enable chrome://flags/#prompt-api-for-gemini-nano.",
+    apiTitle: "Prompt API",
+    apiForceUse: "Force Use",
+    editMessage: "Edit Message",
+    editCancel: "Cancel",
+    editSave: "Save",
+    confirm: "Confirm",
+    cancel: "Cancel",
+    settings: "Settings",
+    close: "Close",
+    theme: "Theme",
+    themeSystem: "System",
+    themeLight: "Light",
+    themeDark: "Dark",
+    sendShortcut: "Send Shortcut",
+    templateChat: "Chat Prompt Template",
+    templateTitle: "Title Summary Template",
+    save: "Save",
+    hintChat: "Available variables: {date} {language}",
+    hintTitle: "Available variables: {date} {language} {user} {assistant}",
+    roleUser: "User",
+    roleAssistant: "Assistant",
+    locale: "en-US",
+  },
+} as const;
+
+type Role = "user" | "assistant";
+type SendShortcut = "ctrlEnter" | "shiftEnter" | "enter";
+export type ThemeMode = "system" | "light" | "dark";
+
+export type Message = {
+  role: Role;
+  content: string;
+  ts: number;
+};
+
+export type History = {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  autoTitleDone: boolean;
+  messages: Message[];
+};
+
+export type Settings = {
+  sendShortcut: SendShortcut;
+  theme: ThemeMode;
+  chatTemplate: string;
+  titleTemplate: string;
+  sidebarWidth: number;
+};
+
+export type RenameSource = "topbar" | "history" | null;
+
+export type State = {
+  histories: History[];
+  activeId: string | null;
+  streaming: boolean;
+  streamingId: string | null;
+  editingIndex: number | null;
+  editDraft: string;
+  statusText: string;
+  apiStatusText: string;
+  apiAvailability: ApiAvailability;
+  settings: Settings;
+  currentLang: keyof typeof I18N;
+  renameTargetId: string | null;
+  renameDraft: string;
+  renameSource: RenameSource;
+};
+
+type Listener = () => void;
+
+type PromptSession = {
+  prompt: (input: string) => Promise<string>;
+  promptStreaming?: (input: string) => AsyncIterable<string>;
+};
+
+type PromptAPI = {
+  availability: () => Promise<"no" | "available" | "downloadable" | "downloading">;
+  create: (options: { temperature: number; topK: number }) => Promise<PromptSession>;
+};
+
+type ApiAvailability =
+  | "unknown"
+  | "chromeOnly"
+  | "needFlag"
+  | "downloadable"
+  | "downloading"
+  | "ready";
+
+const formatterOptions = {
+  gfm: true,
+  breaks: true,
+} as const;
+
+marked.setOptions(formatterOptions);
+
+const escapeHtml = (text: string) =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+export const renderMarkdown = (md: string) => {
+  if (marked) {
+    return marked.parse(md || "");
+  }
+  return `<p>${escapeHtml(md || "")}</p>`;
+};
+
+export class ChatViewModel {
+  private listeners = new Set<Listener>();
+  private chatSessions = new Map<string, PromptSession>();
+  private readonly maxChatSessions = 8;
+  private availabilityTimer: number | null = null;
+  private availabilityInFlight = false;
+  private streamToken: { historyId: string; cancelled: boolean } | null = null;
+  private state: State;
+
+  constructor() {
+    const currentLang = this.initLanguage();
+    const settings = this.loadSettings(currentLang);
+    const histories = this.loadHistories();
+    const activeId = histories[0]?.id ?? null;
+
+    this.state = {
+      histories: histories.length > 0 ? histories : [this.createHistory(currentLang)],
+      activeId: histories.length > 0 ? activeId : null,
+      streaming: false,
+      streamingId: null,
+      editingIndex: null,
+      editDraft: "",
+      statusText: "",
+      apiStatusText: "",
+      apiAvailability: "unknown",
+      settings,
+      currentLang,
+      renameTargetId: null,
+      renameDraft: "",
+      renameSource: null,
+    };
+
+    if (this.state.histories.length === 1 && !activeId) {
+      this.state.activeId = this.state.histories[0].id;
+    }
+  }
+
+  subscribe = (listener: Listener) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  getSnapshot = () => this.state;
+
+  private emit() {
+    this.listeners.forEach((listener) => listener());
+  }
+
+  private setState(updater: (prev: State) => State) {
+    this.state = updater(this.state);
+    this.emit();
+  }
+
+  t = (key: keyof (typeof I18N)["en-US"]) => {
+    const { currentLang } = this.state;
+    return (
+      (I18N[currentLang] && I18N[currentLang][key]) || I18N["en-US"][key] || key
+    );
+  };
+
+  private formatApiStatusText(status: ApiAvailability, lang: keyof typeof I18N) {
+    if (status === "chromeOnly") return I18N[lang].apiChromeOnly;
+    if (status === "downloadable") return I18N[lang].apiDownloadable;
+    if (status === "downloading") return I18N[lang].apiDownloading;
+    if (status === "needFlag") return I18N[lang].apiNeedFlag;
+    return "";
+  }
+
+  private isChromeOnly = () => {
+    const ua = navigator.userAgent || "";
+    const isChrome = /Chrome\//.test(ua);
+    const isEdge = /Edg\//.test(ua);
+    const isOpera = /OPR\//.test(ua);
+    return isChrome && !isEdge && !isOpera;
+  };
+
+  private setApiAvailability(status: ApiAvailability) {
+    this.setState((prev) => ({
+      ...prev,
+      apiAvailability: status,
+      apiStatusText: this.formatApiStatusText(status, prev.currentLang),
+    }));
+  }
+
+  private refreshApiStatusText = () => {
+    this.setState((prev) => ({
+      ...prev,
+      apiStatusText: this.formatApiStatusText(prev.apiAvailability, prev.currentLang),
+    }));
+  }
+
+  startAvailabilityCheck = () => {
+    if (this.availabilityInFlight) return;
+    this.availabilityInFlight = true;
+    void this.checkAvailability();
+  };
+
+  forceUsePromptApi = async () => {
+    if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+    this.availabilityTimer = null;
+    this.availabilityInFlight = true;
+
+    if (!this.isChromeOnly()) {
+      this.setApiAvailability("chromeOnly");
+      this.availabilityInFlight = false;
+      return;
+    }
+
+    try {
+      await this.createSession();
+      this.setApiAvailability("ready");
+      this.availabilityInFlight = false;
+    } catch {
+      await this.checkAvailability();
+      if (this.state.apiAvailability !== "downloading") {
+        this.availabilityInFlight = false;
+      }
+    }
+  };
+
+  formatDate = (ts: number) => {
+    const locale = I18N[this.state.currentLang]?.locale || "en-US";
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(ts));
+  };
+
+  formatTime = (ts: number) => {
+    const locale = I18N[this.state.currentLang]?.locale || "en-US";
+    return new Date(ts).toLocaleString(locale, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  private templateDate = () => this.formatDate(Date.now());
+
+  private applyTemplate = (template: string, vars: Record<string, string>) =>
+    Object.keys(vars).reduce((acc, key) => {
+      return acc.replaceAll(`{${key}}`, vars[key] ?? "");
+    }, template || "");
+
+  private defaultSettings = (lang: keyof typeof I18N): Settings => ({
+    sendShortcut: "ctrlEnter",
+    theme: "system",
+    chatTemplate: "",
+    titleTemplate: TITLE_PROMPT,
+    sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
+  });
+
+  getTitlePrompt = () => TITLE_PROMPT;
+
+  private loadSettings(lang: keyof typeof I18N) {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return this.defaultSettings(lang);
+    try {
+      const parsed = JSON.parse(raw) as Partial<Settings>;
+      const next = { ...this.defaultSettings(lang), ...parsed };
+      return this.sanitizeSettings(next);
+    } catch {
+      return this.defaultSettings(lang);
+    }
+  }
+
+  private normalizeSidebarWidth = (value: unknown) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return SIDEBAR_WIDTH_DEFAULT;
+    const rounded = Math.round(value);
+    return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, rounded));
+  };
+
+  private sanitizeSettings = (settings: Settings): Settings => ({
+    ...settings,
+    sidebarWidth: this.normalizeSidebarWidth(settings.sidebarWidth),
+  });
+
+  private persistSettings(settings: Settings) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }
+
+  private saveHistories(histories: History[]) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(histories));
+  }
+
+  private loadHistories(): History[] {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw) as History[];
+    } catch {
+      return [];
+    }
+  }
+
+  private initLanguage(): keyof typeof I18N {
+    const saved = localStorage.getItem(LANG_KEY) as keyof typeof I18N | null;
+    if (saved && I18N[saved]) return saved;
+
+    const browserLang = (navigator.language || "en-US").toLowerCase();
+    const match = (Object.keys(I18N) as Array<keyof typeof I18N>).find(
+      (key) => key.toLowerCase() === browserLang || key.toLowerCase().startsWith(browserLang)
+    );
+    return match || "en-US";
+  }
+
+  setLanguage = (lang: keyof typeof I18N) => {
+    if (!I18N[lang]) return;
+    localStorage.setItem(LANG_KEY, lang);
+    this.setState((prev) => ({
+      ...prev,
+      currentLang: lang,
+    }));
+    this.refreshApiStatusText();
+  };
+
+  private createHistory = (lang: keyof typeof I18N, name: string | null = null): History => {
+    const now = Date.now();
+    return {
+      id: crypto.randomUUID(),
+      name: name || I18N[lang].defaultTitle,
+      createdAt: now,
+      updatedAt: now,
+      autoTitleDone: false,
+      messages: [],
+    };
+  };
+
+  newChat = () => {
+    this.setState((prev) => {
+      const history = this.createHistory(prev.currentLang);
+      const histories = [history, ...prev.histories];
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        activeId: history.id,
+        editingIndex: null,
+        editDraft: "",
+      };
+    });
+  };
+
+  setActive = (id: string) => {
+    this.setState((prev) => ({
+      ...prev,
+      activeId: id,
+      editingIndex: null,
+      editDraft: "",
+      renameTargetId: null,
+      renameDraft: "",
+      renameSource: null,
+    }));
+  };
+
+  deleteActive = () => {
+    const activeId = this.state.activeId;
+    if (activeId) {
+      if (this.state.streamingId === activeId) {
+        this.cancelStream(activeId);
+      }
+      this.chatSessions.delete(activeId);
+    }
+    this.setState((prev) => {
+      if (!prev.activeId) return prev;
+      const histories = prev.histories.filter((h) => h.id !== prev.activeId);
+      const activeId = histories[0]?.id ?? null;
+      this.saveHistories(histories);
+      return { ...prev, histories, activeId };
+    });
+  };
+
+  beginRenameTopbar = () => {
+    const history = this.getActive();
+    if (!history) return;
+    this.setState((prev) => ({
+      ...prev,
+      renameTargetId: history.id,
+      renameDraft: history.name,
+      renameSource: "topbar",
+    }));
+  };
+
+  beginRenameHistory = (id: string) => {
+    const history = this.state.histories.find((h) => h.id === id);
+    if (!history) return;
+    this.setState((prev) => ({
+      ...prev,
+      renameTargetId: id,
+      renameDraft: history.name,
+      renameSource: "history",
+    }));
+  };
+
+  updateRenameDraft = (value: string) => {
+    this.setState((prev) => ({ ...prev, renameDraft: value }));
+  };
+
+  commitRename = () => {
+    this.setState((prev) => {
+      const targetId = prev.renameTargetId;
+      if (!targetId) return prev;
+      const clean = (prev.renameDraft || "").trim();
+      if (!clean) {
+        return { ...prev, renameTargetId: null, renameDraft: "", renameSource: null };
+      }
+      const histories = prev.histories.map((history) =>
+        history.id === targetId
+          ? { ...history, name: clean, updatedAt: Date.now() }
+          : history
+      );
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        renameTargetId: null,
+        renameDraft: "",
+        renameSource: null,
+      };
+    });
+  };
+
+  cancelRename = () => {
+    this.setState((prev) => ({
+      ...prev,
+      renameTargetId: null,
+      renameDraft: "",
+      renameSource: null,
+    }));
+  };
+
+  updateSettings = (next: Settings) => {
+    const sanitized = this.sanitizeSettings(next);
+    this.persistSettings(sanitized);
+    this.setState((prev) => ({ ...prev, settings: sanitized }));
+  };
+
+  updateSettingsField = (patch: Partial<Settings>) => {
+    this.setState((prev) => {
+      const next = this.sanitizeSettings({ ...prev.settings, ...patch });
+      this.persistSettings(next);
+      return { ...prev, settings: next };
+    });
+  };
+
+  setSidebarWidth = (width: number) => {
+    this.updateSettingsField({ sidebarWidth: width });
+  };
+
+  openEdit = (index: number) => {
+    if (this.state.streaming) return;
+    const history = this.getActive();
+    const msg = history?.messages[index];
+    if (!msg) return;
+    this.setState((prev) => ({
+      ...prev,
+      editingIndex: index,
+      editDraft: msg.content || "",
+    }));
+  };
+
+  closeEdit = () => {
+    this.setState((prev) => ({ ...prev, editingIndex: null, editDraft: "" }));
+  };
+
+  updateEditDraft = (value: string) => {
+    this.setState((prev) => ({ ...prev, editDraft: value }));
+  };
+
+  saveEdit = () => {
+    this.setState((prev) => {
+      const history = this.getActive(prev);
+      if (!history) return prev;
+      const idx = prev.editingIndex;
+      if (idx === null) return prev;
+      const msg = history.messages[idx];
+      if (!msg) return prev;
+      const histories = prev.histories.map((h) =>
+        h.id === history.id
+          ? {
+              ...h,
+              messages: h.messages.map((m, i) =>
+                i === idx ? { ...m, content: prev.editDraft.trim() } : m
+              ),
+              updatedAt: Date.now(),
+            }
+          : h
+      );
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        editingIndex: null,
+        editDraft: "",
+      };
+    });
+  };
+
+  deleteMessage = (index: number) => {
+    this.setState((prev) => {
+      const history = this.getActive(prev);
+      if (!history) return prev;
+      if (index < 0 || index >= history.messages.length) return prev;
+      const histories = prev.histories.map((h) =>
+        h.id === history.id
+          ? {
+              ...h,
+              messages: h.messages.filter((_, i) => i !== index),
+              updatedAt: Date.now(),
+            }
+          : h
+      );
+      this.saveHistories(histories);
+      return { ...prev, histories };
+    });
+  };
+
+  resendFrom = async (index: number) => {
+    if (this.state.streaming) return;
+    const history = this.getActive();
+    const msg = history?.messages[index];
+    if (!msg || msg.role !== "user") return;
+
+    this.setState((prev) => {
+      const active = this.getActive(prev);
+      if (!active) return prev;
+      const nextMessages = active.messages.slice(0, index + 1).map((m, i) =>
+        i === index ? { ...m, content: prev.editDraft.trim() } : m
+      );
+      nextMessages.push({ role: "assistant", content: "", ts: Date.now() });
+      const histories = prev.histories.map((h) =>
+        h.id === active.id
+          ? { ...h, messages: nextMessages, updatedAt: Date.now() }
+          : h
+      );
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        editingIndex: null,
+        editDraft: "",
+        streaming: true,
+        streamingId: active.id,
+        statusText: this.t("statusStreaming"),
+      };
+    });
+
+    const active = this.getActive();
+    if (!active) return;
+    const targetId = active.id;
+    const token = this.beginStreaming(targetId);
+
+    try {
+      const prompt = this.buildChatPrompt(active);
+      const cancelled = await this.streamAssistant(prompt, targetId, token);
+      if (cancelled) return;
+    } catch (err) {
+      if (!token.cancelled) this.failAssistant(err, targetId);
+    } finally {
+      this.finishStreaming(targetId);
+    }
+  };
+
+  sendMessage = async (text: string) => {
+    if (this.state.streaming) return;
+    if (!this.getActive()) this.newChat();
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    this.setState((prev) => {
+      const active = this.getActive(prev);
+      if (!active) return prev;
+      const messages: Message[] = [
+        ...active.messages,
+        { role: "user", content: trimmed, ts: Date.now() },
+        { role: "assistant", content: "", ts: Date.now() },
+      ];
+      const histories = prev.histories.map((h) =>
+        h.id === active.id ? { ...h, messages, updatedAt: Date.now() } : h
+      );
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        streaming: true,
+        streamingId: active.id,
+        statusText: this.t("statusStreaming"),
+      };
+    });
+
+    const active = this.getActive();
+    if (!active) return;
+    const targetId = active.id;
+    const token = this.beginStreaming(targetId);
+
+    let cancelled = false;
+    try {
+      const prompt = this.buildChatPrompt(active);
+      cancelled = await this.streamAssistant(prompt, targetId, token);
+      if (cancelled) return;
+    } catch (err) {
+      if (!token.cancelled) this.failAssistant(err, targetId);
+    } finally {
+      this.finishStreaming(targetId);
+      if (!cancelled) await this.maybeAutoTitle();
+    }
+  };
+
+  private getActive = (state: State = this.state) =>
+    state.histories.find((h) => h.id === state.activeId) || null;
+
+  private buildPrompt = (history: History) =>
+    history.messages
+      .filter((m) => m.content && m.content.trim().length > 0)
+      .map((m) => `${m.role === "user" ? this.t("roleUser") : this.t("roleAssistant")}: ${m.content}`)
+      .join("\n");
+
+  private buildChatPrompt = (history: History) => {
+    const historyText = this.buildPrompt(history);
+    const template = this.state.settings.chatTemplate || "";
+    const systemPrompt = this.applyTemplate(template, {
+      date: this.templateDate(),
+      language: this.state.currentLang,
+    })
+      .replaceAll("{history}", "")
+      .trim();
+    if (!systemPrompt) return historyText;
+    return `${systemPrompt}\n\n${historyText}`;
+  };
+
+  private getPromptApi() {
+    const lm = (window as unknown as { ai?: { languageModel?: PromptAPI } }).ai?.languageModel ||
+      (window as unknown as { LanguageModel?: PromptAPI }).LanguageModel;
+    if (!lm) throw new Error("未检测到 Chrome Prompt API");
+    return lm;
+  }
+
+  private scheduleAvailabilityCheck() {
+    if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+    this.availabilityTimer = window.setTimeout(() => void this.checkAvailability(), 1000);
+  }
+
+  private async checkAvailability() {
+    if (!this.isChromeOnly()) {
+      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+      this.availabilityTimer = null;
+      this.setApiAvailability("chromeOnly");
+      this.availabilityInFlight = false;
+      return;
+    }
+
+    const lm = (window as unknown as { LanguageModel?: PromptAPI }).LanguageModel;
+    if (!lm) {
+      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+      this.availabilityTimer = null;
+      this.setApiAvailability("needFlag");
+      this.availabilityInFlight = false;
+      return;
+    }
+
+    let availability: string;
+    try {
+      availability = await lm.availability();
+    } catch {
+      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+      this.availabilityTimer = null;
+      this.setApiAvailability("needFlag");
+      this.availabilityInFlight = false;
+      return;
+    }
+
+    if (availability === "downloading") {
+      this.setApiAvailability("downloading");
+      this.scheduleAvailabilityCheck();
+      return;
+    }
+
+    if (availability === "downloadable") {
+      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+      this.availabilityTimer = null;
+      this.setApiAvailability("downloadable");
+      this.availabilityInFlight = false;
+      return;
+    }
+
+    if (availability === "available") {
+      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+      this.availabilityTimer = null;
+      this.setApiAvailability("ready");
+      this.availabilityInFlight = false;
+      return;
+    }
+
+    if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+    this.availabilityTimer = null;
+    this.setApiAvailability("needFlag");
+    this.availabilityInFlight = false;
+  }
+
+  private async createSession() {
+    const lm = this.getPromptApi();
+    const availability = await lm.availability();
+    if (availability === "no") throw new Error("Prompt API 不可用");
+    return lm.create({ temperature: 0.7, topK: 40 });
+  }
+
+  private async getChatSession(historyId: string) {
+    const existing = this.chatSessions.get(historyId);
+    if (existing) {
+      this.chatSessions.delete(historyId);
+      this.chatSessions.set(historyId, existing);
+      return existing;
+    }
+    const session = await this.createSession();
+    this.chatSessions.set(historyId, session);
+    if (this.chatSessions.size > this.maxChatSessions) {
+      const oldestKey = this.chatSessions.keys().next().value as string | undefined;
+      if (oldestKey) this.chatSessions.delete(oldestKey);
+    }
+    return session;
+  }
+
+  stopStreaming = () => {
+    const activeId = this.state.streamingId;
+    if (!activeId) return;
+    this.cancelStream(activeId);
+  };
+
+  private beginStreaming = (historyId: string) => {
+    const token = { historyId, cancelled: false };
+    this.streamToken = token;
+    return token;
+  };
+
+  private cancelStream = (historyId: string) => {
+    if (this.streamToken && this.streamToken.historyId === historyId) {
+      this.streamToken.cancelled = true;
+    }
+    this.streamToken = null;
+    this.chatSessions.delete(historyId);
+    this.setState((prev) => {
+      if (prev.streamingId !== historyId) return prev;
+      return { ...prev, streaming: false, streamingId: null, statusText: "" };
+    });
+  };
+
+  private async streamAssistant(
+    prompt: string,
+    historyId: string,
+    token: { historyId: string; cancelled: boolean }
+  ) {
+    if (token.cancelled) return true;
+    const session = await this.getChatSession(historyId);
+    if (token.cancelled) return true;
+    if (session.promptStreaming) {
+      let output = "";
+      for await (const chunk of session.promptStreaming(prompt)) {
+        if (token.cancelled) break;
+        output += chunk;
+        if (token.cancelled) break;
+        this.updateLastAssistant(output, historyId);
+      }
+      return token.cancelled;
+    } else {
+      const output = await session.prompt(prompt);
+      if (token.cancelled) return true;
+      this.updateLastAssistant(output, historyId);
+      return false;
+    }
+  }
+
+  private updateLastAssistant(content: string, historyId: string) {
+    this.setState((prev) => {
+      const history = prev.histories.find((h) => h.id === historyId);
+      if (!history) return prev;
+      const messages = [...history.messages];
+      const lastIndex = messages.length - 1;
+      if (lastIndex < 0 || messages[lastIndex].role !== "assistant") return prev;
+      messages[lastIndex] = { ...messages[lastIndex], content };
+      const histories = prev.histories.map((h) =>
+        h.id === historyId ? { ...h, messages, updatedAt: Date.now() } : h
+      );
+      this.saveHistories(histories);
+      return { ...prev, histories };
+    });
+  }
+
+  private failAssistant(err: unknown, historyId: string) {
+    const message = err instanceof Error ? err.message : String(err);
+    this.updateLastAssistant(`${this.t("statusError")}${message}`, historyId);
+  }
+
+  private finishStreaming(historyId: string) {
+    if (this.streamToken?.historyId === historyId) {
+      this.streamToken = null;
+    }
+    this.setState((prev) => {
+      if (prev.streamingId !== historyId) return prev;
+      return { ...prev, streaming: false, streamingId: null, statusText: "" };
+    });
+  }
+
+  private async maybeAutoTitle() {
+    const history = this.getActive();
+    if (!history || history.autoTitleDone) return;
+
+    const firstUser = history.messages.find((m) => m.role === "user" && m.content.trim());
+    const firstAssistant = history.messages.find(
+      (m) => m.role === "assistant" && m.content.trim()
+    );
+    if (!firstUser || !firstAssistant) return;
+    if (history.name !== this.t("defaultTitle")) {
+      this.markAutoTitleDone(history.id);
+      return;
+    }
+
+    try {
+      const session = await this.createSession();
+      const prompt = this.applyTemplate(this.state.settings.titleTemplate, {
+        date: this.templateDate(),
+        language: this.state.currentLang,
+        user: firstUser.content,
+        assistant: firstAssistant.content,
+      });
+
+      if (session.promptStreaming) {
+        let output = "";
+        for await (const chunk of session.promptStreaming(prompt)) {
+          output += chunk;
+          const clean = output.replace(/[\r\n]+/g, " ").trim().slice(0, 24);
+          if (clean) this.updateHistoryTitle(history.id, clean, true);
+        }
+      } else {
+        const title = await session.prompt(prompt);
+        const clean = title.replace(/[\r\n]+/g, " ").trim().slice(0, 24);
+        if (clean) this.updateHistoryTitle(history.id, clean, false);
+      }
+    } catch {
+      // ignore auto-title failures
+    } finally {
+      this.markAutoTitleDone(history.id);
+    }
+  }
+
+  private updateHistoryTitle(id: string, name: string, notify: boolean) {
+    this.setState((prev) => {
+      const histories = prev.histories.map((h) =>
+        h.id === id ? { ...h, name, updatedAt: Date.now() } : h
+      );
+      this.saveHistories(histories);
+      return notify ? { ...prev, histories } : { ...prev, histories };
+    });
+  }
+
+  private markAutoTitleDone(id: string) {
+    this.setState((prev) => {
+      const histories = prev.histories.map((h) =>
+        h.id === id ? { ...h, autoTitleDone: true } : h
+      );
+      this.saveHistories(histories);
+      return { ...prev, histories };
+    });
+  }
+}
+
+export const chatViewModel = new ChatViewModel();
