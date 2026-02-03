@@ -231,40 +231,6 @@ export type State = {
 
 type Listener = () => void;
 
-type PromptTextPart = { type: "text"; value: string };
-type PromptImagePart = { type: "image"; value: Blob };
-type PromptAudioPart = { type: "audio"; value: Blob };
-type PromptPart = PromptTextPart | PromptImagePart | PromptAudioPart;
-type PromptMessage = { role: Role; content: PromptPart[] };
-type PromptInput = string | PromptMessage[];
-
-type InitialPrompt = { role: "system"; content: string };
-type ExpectedText = { type: "text"; languages?: string[] };
-type ExpectedInput = ExpectedText | { type: "image" } | { type: "audio" };
-type ExpectedOutput = ExpectedText;
-
-type PromptSession = {
-  prompt: (input: PromptInput) => Promise<string>;
-  promptStreaming?: (input: PromptInput) => AsyncIterable<string>;
-};
-
-type PromptCreateOptions = {
-  temperature: number;
-  topK: number;
-  initialPrompts?: InitialPrompt[];
-  expectedInputs?: ExpectedInput[];
-  expectedOutputs?: ExpectedOutput[];
-  monitor?: (monitor: EventTarget) => void;
-};
-
-type PromptAPI = {
-  availability?: (options?: Pick<PromptCreateOptions, "expectedInputs" | "expectedOutputs">) => Promise<
-    "no" | "available" | "downloadable" | "downloading"
-  >;
-  create: (options: PromptCreateOptions) => Promise<PromptSession>;
-};
-
-
 type ApiAvailability =
   | "unknown"
   | "chromeOnly"
@@ -272,9 +238,6 @@ type ApiAvailability =
   | "downloadable"
   | "downloading"
   | "ready";
-
-type PromptModality = "text" | "image" | "audio";
-type PromptSessionInfo = { session: PromptSession; modalities: Set<PromptModality> };
 
 const formatterOptions = {
   gfm: true,
@@ -300,7 +263,10 @@ export const renderMarkdown = (md: string) => {
 
 export class ChatViewModel {
   private listeners = new Set<Listener>();
-  private chatSessions = new Map<string, PromptSessionInfo>();
+  private chatSessions = new Map<
+    string,
+    { session: LanguageModel; modalities: Set<LanguageModelMessageType> }
+  >();
   private readonly maxChatSessions = 8;
   private availabilityTimer: number | null = null;
   private availabilityInFlight = false;
@@ -439,7 +405,7 @@ export class ChatViewModel {
         ...expected,
         monitor: (monitor) => {
           monitor.addEventListener?.("downloadprogress", (event) => {
-            const loaded = (event as { loaded?: number }).loaded;
+            const loaded = event.loaded;
             if (typeof loaded !== "number") return;
             const progress = Math.max(0, Math.min(1, loaded));
             this.setState((prev) => ({ ...prev, downloadProgress: progress }));
@@ -507,9 +473,11 @@ export class ChatViewModel {
     return undefined;
   };
 
-  private buildExpectedInputs = (modalities: Set<PromptModality>): ExpectedInput[] => {
+  private buildExpectedInputs = (
+    modalities: Set<LanguageModelMessageType>
+  ): LanguageModelExpected[] => {
     const languages = this.getPromptLanguages();
-    const inputs: ExpectedInput[] = [
+    const inputs: LanguageModelExpected[] = [
       languages ? { type: "text", languages } : { type: "text" },
     ];
     if (modalities.has("image")) inputs.push({ type: "image" });
@@ -517,17 +485,17 @@ export class ChatViewModel {
     return inputs;
   };
 
-  private buildExpectedOutputs = (): ExpectedOutput[] => {
+  private buildExpectedOutputs = (): LanguageModelExpected[] => {
     const languages = this.getPromptLanguages();
     return [languages ? { type: "text", languages } : { type: "text" }];
   };
 
-  private buildExpectedOptions = (modalities: Set<PromptModality>) => ({
+  private buildExpectedOptions = (modalities: Set<LanguageModelMessageType>) => ({
     expectedInputs: this.buildExpectedInputs(modalities),
     expectedOutputs: this.buildExpectedOutputs(),
   });
 
-  private textOnlyModalities = () => new Set<PromptModality>(["text"]);
+  private textOnlyModalities = () => new Set<LanguageModelMessageType>(["text"]);
 
   private templateDate = () => this.formatDate(Date.now());
 
@@ -1161,7 +1129,9 @@ export class ChatViewModel {
     }
   }
 
-  private async buildAttachmentParts(attachment: Attachment): Promise<PromptPart[]> {
+  private async buildAttachmentParts(
+    attachment: Attachment
+  ): Promise<LanguageModelMessageContent[]> {
     if (attachment.kind === "text") {
       return [{ type: "text", value: this.formatTextAttachment(attachment) }];
     }
@@ -1179,10 +1149,10 @@ export class ChatViewModel {
     ];
   }
 
-  private async buildPromptMessages(history: History): Promise<PromptMessage[]> {
-    const messages: PromptMessage[] = [];
+  private async buildPromptMessages(history: History): Promise<LanguageModelMessage[]> {
+    const messages: LanguageModelMessage[] = [];
     for (const message of history.messages) {
-      const parts: PromptPart[] = [];
+      const parts: LanguageModelMessageContent[] = [];
       const content = message.content?.trim();
       if (content) parts.push({ type: "text", value: content });
       if (message.attachments?.length) {
@@ -1199,7 +1169,7 @@ export class ChatViewModel {
   }
 
   private collectModalities(history: History) {
-    const modalities = new Set<PromptModality>(["text"]);
+    const modalities = new Set<LanguageModelMessageType>(["text"]);
     for (const message of history.messages) {
       for (const attachment of message.attachments ?? []) {
         if (attachment.kind === "image") {
@@ -1226,11 +1196,12 @@ export class ChatViewModel {
   };
 
   private getPromptApiMaybe() {
-    return (
-      (window as unknown as { ai?: { languageModel?: PromptAPI } }).ai?.languageModel ||
-      (window as unknown as { LanguageModel?: PromptAPI }).LanguageModel ||
-      null
-    );
+    const w = window as Window & {
+      ai?: { languageModel?: Pick<typeof LanguageModel, "availability" | "create"> };
+    };
+    if (w.ai?.languageModel) return w.ai.languageModel;
+    if (typeof LanguageModel === "undefined") return null;
+    return LanguageModel;
   }
 
   private getPromptApi() {
@@ -1270,7 +1241,7 @@ export class ChatViewModel {
       return;
     }
 
-    let availability: string;
+    let availability: Availability;
     try {
       const expected = this.buildExpectedOptions(this.textOnlyModalities());
       availability = await lm.availability(expected);
@@ -1304,20 +1275,30 @@ export class ChatViewModel {
       return;
     }
 
+    if (availability === "unavailable") {
+      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+      this.availabilityTimer = null;
+      this.setApiAvailability("needFlag");
+      this.availabilityInFlight = false;
+      return;
+    }
+
     if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
     this.availabilityTimer = null;
     this.setApiAvailability("needFlag");
     this.availabilityInFlight = false;
   }
 
-  private async createSession(modalities: Set<PromptModality>) {
+  private async createSession(modalities: Set<LanguageModelMessageType>) {
     const lm = this.getPromptApi();
     const expected = this.buildExpectedOptions(modalities);
     const availability =
       typeof lm.availability === "function" ? await lm.availability(expected) : "available";
-    if (availability === "no") throw new Error("Prompt API 不可用");
+    if (availability === "unavailable") throw new Error("Prompt API 不可用");
     const systemPrompt = this.buildSystemPrompt();
-    const initialPrompts = systemPrompt ? [{ role: "system", content: systemPrompt }] : undefined;
+    const initialPrompts: [LanguageModelSystemMessage] | undefined = systemPrompt
+      ? [{ role: "system", content: systemPrompt }]
+      : undefined;
     return lm.create({
       temperature: 0.7,
       topK: 40,
@@ -1326,14 +1307,17 @@ export class ChatViewModel {
     });
   }
 
-  private hasModalities = (owned: Set<PromptModality>, needed: Set<PromptModality>) => {
+  private hasModalities = (
+    owned: Set<LanguageModelMessageType>,
+    needed: Set<LanguageModelMessageType>
+  ) => {
     for (const modality of needed) {
       if (!owned.has(modality)) return false;
     }
     return true;
   };
 
-  private async getChatSession(historyId: string, modalities: Set<PromptModality>) {
+  private async getChatSession(historyId: string, modalities: Set<LanguageModelMessageType>) {
     const existing = this.chatSessions.get(historyId);
     if (existing && this.hasModalities(existing.modalities, modalities)) {
       this.chatSessions.delete(historyId);
@@ -1373,23 +1357,49 @@ export class ChatViewModel {
     });
   };
 
+  private async readPromptStream(
+    stream: ReadableStream<string>,
+    onChunk: (chunk: string) => void,
+    token?: { cancelled: boolean }
+  ) {
+    const reader = stream.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (token?.cancelled) {
+          await reader.cancel();
+          break;
+        }
+        if (typeof value === "string") onChunk(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
   private async streamAssistant(
-    prompt: PromptInput,
+    prompt: LanguageModelPrompt,
     historyId: string,
     token: { historyId: string; cancelled: boolean },
-    modalities: Set<PromptModality>
+    modalities: Set<LanguageModelMessageType>
   ) {
     if (token.cancelled) return true;
     const session = await this.getChatSession(historyId, modalities);
     if (token.cancelled) return true;
     if (session.promptStreaming) {
       let output = "";
-      for await (const chunk of session.promptStreaming(prompt)) {
-        if (token.cancelled) break;
-        output += chunk;
-        if (token.cancelled) break;
-        this.updateLastAssistant(output, historyId);
-      }
+      const stream = session.promptStreaming(prompt);
+      await this.readPromptStream(
+        stream,
+        (chunk) => {
+          if (token.cancelled) return;
+          output += chunk;
+          if (token.cancelled) return;
+          this.updateLastAssistant(output, historyId);
+        },
+        token
+      );
       return token.cancelled;
     } else {
       const output = await session.prompt(prompt);
@@ -1456,11 +1466,12 @@ export class ChatViewModel {
 
       if (session.promptStreaming) {
         let output = "";
-        for await (const chunk of session.promptStreaming(prompt)) {
+        const stream = session.promptStreaming(prompt);
+        await this.readPromptStream(stream, (chunk) => {
           output += chunk;
           const clean = output.replace(/[\r\n]+/g, " ").trim().slice(0, 24);
           if (clean) this.updateHistoryTitle(history.id, clean, true);
-        }
+        });
       } else {
         const title = await session.prompt(prompt);
         const clean = title.replace(/[\r\n]+/g, " ").trim().slice(0, 24);
