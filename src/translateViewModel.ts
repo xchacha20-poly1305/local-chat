@@ -17,6 +17,7 @@ export const TranslateI18N = {
     copy: "复制结果",
     copied: "已复制",
     copyFailed: "复制失败",
+    clearInput: "清空",
     statusTranslating: "翻译中...",
     statusDetecting: "检测语言...",
     statusError: "发生错误：",
@@ -47,6 +48,7 @@ export const TranslateI18N = {
     copy: "Copy output",
     copied: "Copied",
     copyFailed: "Copy failed",
+    clearInput: "Clear",
     statusTranslating: "Translating...",
     statusDetecting: "Detecting language...",
     statusError: "Error: ",
@@ -331,6 +333,18 @@ export class TranslateViewModel {
     this.cancelInFlight();
     this.setState((prev) => ({
       ...prev,
+      outputText: "",
+      statusText: "",
+      translating: false,
+      detectedLang: null,
+    }));
+  };
+
+  clearInput = () => {
+    this.cancelInFlight();
+    this.setState((prev) => ({
+      ...prev,
+      inputText: "",
       outputText: "",
       statusText: "",
       translating: false,

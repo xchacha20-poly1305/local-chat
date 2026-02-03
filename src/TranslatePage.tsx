@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ArrowLeft, ArrowLeftRight, Check, ChevronDown, Copy } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, Check, ChevronDown, Copy, Trash2 } from "lucide-react";
 import { navigate } from "./navigation";
 import {
   translateViewModel,
@@ -231,11 +231,22 @@ const TranslatePage = () => {
         <div className="translate-panel">
           <div className="translate-panel-header">
             <span>{translateViewModel.t("sourceLanguage")}</span>
-            {detectedLabel ? (
-              <span className="translate-detected">
-                {translateViewModel.t("detectedLanguage")}: {detectedLabel}
-              </span>
-            ) : null}
+            <div className="translate-panel-actions">
+              {detectedLabel ? (
+                <span className="translate-detected">
+                  {translateViewModel.t("detectedLanguage")}: {detectedLabel}
+                </span>
+              ) : null}
+              <button
+                className="btn"
+                type="button"
+                onClick={() => translateViewModel.clearInput()}
+                disabled={!state.inputText.trim()}
+              >
+                <Trash2 aria-hidden="true" />
+                <span>{translateViewModel.t("clearInput")}</span>
+              </button>
+            </div>
           </div>
           <textarea
             rows={10}

@@ -1202,9 +1202,16 @@ textarea {
   gap: 10px;
 }
 
-.translate-output-actions .btn {
+.translate-output-actions .btn,
+.translate-panel-actions .btn {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.translate-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .translate-copy-status {
