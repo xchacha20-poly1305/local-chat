@@ -217,6 +217,7 @@ const App = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const suppressRenameBlurRef = useRef(false);
   const resizeRef = useRef({ startX: 0, startWidth: 0, active: false });
   const autoScrollRef = useRef(true);
   const lastActiveIdRef = useRef<string | null>(null);
@@ -507,7 +508,13 @@ const App = () => {
       if (event.key === "Enter") chatViewModel.commitRename();
       if (event.key === "Escape") chatViewModel.cancelRename();
     },
-    onBlur: () => chatViewModel.commitRename(),
+    onBlur: () => {
+      if (suppressRenameBlurRef.current) {
+        suppressRenameBlurRef.current = false;
+        return;
+      }
+      chatViewModel.commitRename();
+    },
   };
 
   return (
@@ -572,27 +579,60 @@ const App = () => {
                         )}
                       </div>
                       <div className="history-actions">
-                        <button
-                          className="history-rename"
-                          title={chatViewModel.t("rename")}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            chatViewModel.beginRenameHistory(history.id);
-                          }}
-                        >
-                          <Pencil aria-hidden="true" />
-                        </button>
-                        <button
-                          className="history-delete"
-                          title={chatViewModel.t("delete")}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            chatViewModel.setActive(history.id);
-                            chatViewModel.deleteActive();
-                          }}
-                        >
-                          <Trash2 aria-hidden="true" />
-                        </button>
+                        {isRenaming ? (
+                          <>
+                            <button
+                              className="history-confirm"
+                              title={chatViewModel.t("confirm")}
+                              onMouseDown={() => {
+                                suppressRenameBlurRef.current = true;
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                chatViewModel.commitRename();
+                              }}
+                            >
+                              <Check aria-hidden="true" />
+                            </button>
+                            <button
+                              className="history-cancel"
+                              title={chatViewModel.t("cancel")}
+                              onMouseDown={() => {
+                                suppressRenameBlurRef.current = true;
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                chatViewModel.cancelRename();
+                              }}
+                            >
+                              <X aria-hidden="true" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              className="history-rename"
+                              title={chatViewModel.t("rename")}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                chatViewModel.beginRenameHistory(history.id);
+                              }}
+                            >
+                              <Pencil aria-hidden="true" />
+                            </button>
+                            <button
+                              className="history-delete"
+                              title={chatViewModel.t("delete")}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                chatViewModel.setActive(history.id);
+                                chatViewModel.deleteActive();
+                              }}
+                            >
+                              <Trash2 aria-hidden="true" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
@@ -626,20 +666,47 @@ const App = () => {
               )}
             </div>
             <div className="topbar-actions">
-              <button
-                className="icon-btn"
-                title={chatViewModel.t("rename")}
-                onClick={() => chatViewModel.beginRenameTopbar()}
-              >
-                <Pencil aria-hidden="true" />
-              </button>
-              <button
-                className="icon-btn danger"
-                title={chatViewModel.t("delete")}
-                onClick={() => chatViewModel.deleteActive()}
-              >
-                <Trash2 aria-hidden="true" />
-              </button>
+              {state.renameSource === "topbar" && state.renameTargetId === active?.id ? (
+                <>
+                  <button
+                    className="icon-btn success"
+                    title={chatViewModel.t("confirm")}
+                    onMouseDown={() => {
+                      suppressRenameBlurRef.current = true;
+                    }}
+                    onClick={() => chatViewModel.commitRename()}
+                  >
+                    <Check aria-hidden="true" />
+                  </button>
+                  <button
+                    className="icon-btn danger"
+                    title={chatViewModel.t("cancel")}
+                    onMouseDown={() => {
+                      suppressRenameBlurRef.current = true;
+                    }}
+                    onClick={() => chatViewModel.cancelRename()}
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="icon-btn"
+                    title={chatViewModel.t("rename")}
+                    onClick={() => chatViewModel.beginRenameTopbar()}
+                  >
+                    <Pencil aria-hidden="true" />
+                  </button>
+                  <button
+                    className="icon-btn danger"
+                    title={chatViewModel.t("delete")}
+                    onClick={() => chatViewModel.deleteActive()}
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </button>
+                </>
+              )}
             </div>
           </header>
 
