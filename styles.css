@@ -20,6 +20,7 @@
   --assistant-border: #243145;
   --sidebar-width: 280px;
   --sidebar-resizer-width: 10px;
+  --dialog-title: #f5f7ff;
 }
 
 :root[data-theme="light"] {
@@ -42,6 +43,7 @@
   --user-border: #b7d6ff;
   --assistant-bg: #f3f4f6;
   --assistant-border: #d2d8e0;
+  --dialog-title: #0b1220;
 }
 
 @media (prefers-color-scheme: light) {
@@ -65,6 +67,7 @@
     --user-border: #b7d6ff;
     --assistant-bg: #f3f4f6;
     --assistant-border: #d2d8e0;
+    --dialog-title: #0b1220;
   }
 }
 
@@ -681,6 +684,7 @@ textarea {
 .settings-title {
   font-weight: 700;
   font-size: 16px;
+  color: var(--dialog-title);
 }
 
 .settings-row {
@@ -736,6 +740,7 @@ textarea {
 .api-title {
   font-weight: 700;
   font-size: 15px;
+  color: var(--dialog-title);
 }
 
 .api-text {
