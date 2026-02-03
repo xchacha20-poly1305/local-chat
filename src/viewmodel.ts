@@ -61,6 +61,26 @@ export const I18N = {
     save: "保存",
     hintChat: "可用变量：{date} {language}",
     hintTitle: "可用变量：{date} {language} {user} {assistant}。留空将禁用自动生成标题。",
+    settingsBackup: "设置备份",
+    backupSettings: "备份设置",
+    backupToFile: "导出文件",
+    backupToClipboard: "复制到剪贴板",
+    importSettings: "导入设置",
+    importFromFile: "从文件导入",
+    importFromClipboard: "从剪贴板导入",
+    clipboardUnavailable: "剪贴板不可用或权限被拒绝。",
+    exportChats: "导出对话",
+    openExportDialog: "打开导出面板",
+    exportDialogTitle: "导出对话",
+    exportHint: "可多选对话进行导出",
+    exportFormat: "导出格式",
+    exportSelectAll: "全选",
+    exportClear: "清空",
+    exportSelected: "导出选中",
+    exportEmpty: "暂无可导出的对话",
+    exportFormatJson: "JSON",
+    exportFormatMd: "Markdown",
+    exportFormatTxt: "文本",
     roleUser: "用户",
     roleAssistant: "助手",
     locale: "zh-CN",
@@ -113,6 +133,26 @@ export const I18N = {
     save: "Save",
     hintChat: "Available variables: {date} {language}",
     hintTitle: "Available variables: {date} {language} {user} {assistant}. Leave empty to disable auto title.",
+    settingsBackup: "Settings Backup",
+    backupSettings: "Backup Settings",
+    backupToFile: "Export File",
+    backupToClipboard: "Copy to Clipboard",
+    importSettings: "Import Settings",
+    importFromFile: "Import from File",
+    importFromClipboard: "Import from Clipboard",
+    clipboardUnavailable: "Clipboard unavailable or permission denied.",
+    exportChats: "Export Chats",
+    openExportDialog: "Open Export Panel",
+    exportDialogTitle: "Export Chats",
+    exportHint: "Select multiple chats to export",
+    exportFormat: "Format",
+    exportSelectAll: "Select All",
+    exportClear: "Clear",
+    exportSelected: "Export Selected",
+    exportEmpty: "No chats to export",
+    exportFormatJson: "JSON",
+    exportFormatMd: "Markdown",
+    exportFormatTxt: "Text",
     roleUser: "User",
     roleAssistant: "Assistant",
     locale: "en-US",
@@ -429,6 +469,17 @@ export class ChatViewModel {
     });
   };
 
+  private formatDateTime = (ts: number) => {
+    const locale = I18N[this.state.currentLang]?.locale || "en-US";
+    return new Date(ts).toLocaleString(locale, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   formatBytes = (value: number) => {
     if (!Number.isFinite(value)) return "0 B";
     const units = ["B", "KB", "MB", "GB"];
@@ -515,6 +566,85 @@ export class ChatViewModel {
     ...settings,
     sidebarWidth: this.normalizeSidebarWidth(settings.sidebarWidth),
   });
+
+  exportSettingsBundle = () => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings: this.state.settings,
+    };
+    return {
+      filename: `settings_${this.fileStamp()}.json`,
+      mime: "application/json",
+      content: JSON.stringify(payload, null, 2),
+    };
+  };
+
+  importSettingsBundle = (raw: string) => {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const isRecord = (value: unknown): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null;
+      if (!isRecord(parsed)) return { ok: false, error: "Invalid settings format." };
+      const input = isRecord(parsed.settings) ? parsed.settings : parsed;
+      if (!isRecord(input)) return { ok: false, error: "Invalid settings format." };
+      const next = {
+        ...this.defaultSettings(this.state.currentLang),
+        ...input,
+      };
+      this.updateSettings(next as Settings);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Invalid JSON." };
+    }
+  };
+
+  exportHistoriesBundle = (ids: string[], format: "json" | "md" | "txt") => {
+    const selected = this.state.histories.filter((h) => ids.includes(h.id));
+    const stamp = this.fileStamp();
+
+    if (format === "json") {
+      const payload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        histories: this.serializeHistories(selected),
+      };
+      return {
+        filename: `chats_${stamp}.json`,
+        mime: "application/json",
+        content: JSON.stringify(payload, null, 2),
+      };
+    }
+
+    const lines: string[] = [];
+    selected.forEach((history, index) => {
+      if (index > 0) lines.push("", "");
+      lines.push(`# ${history.name}`);
+      lines.push(`Created: ${this.formatDateTime(history.createdAt)}`);
+      lines.push(`Updated: ${this.formatDateTime(history.updatedAt)}`);
+      lines.push("");
+      history.messages.forEach((message) => {
+        lines.push(`[${this.t(message.role === "user" ? "roleUser" : "roleAssistant")} ${this.formatDateTime(message.ts)}]`);
+        if (message.content) {
+          lines.push(message.content.trim());
+        }
+        if (message.attachments && message.attachments.length > 0) {
+          const names = message.attachments.map((attachment) => {
+            const size = this.formatBytes(attachment.size);
+            return `${attachment.name} (${size})`;
+          });
+          lines.push(`Attachments: ${names.join(", ")}`);
+        }
+        lines.push("");
+      });
+    });
+
+    return {
+      filename: `chats_${stamp}.${format}`,
+      mime: format === "md" ? "text/markdown" : "text/plain",
+      content: lines.join("\n").trim(),
+    };
+  };
 
   private persistSettings(settings: Settings) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));

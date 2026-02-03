@@ -193,6 +193,7 @@ const App = () => {
   const active = state.histories.find((h) => h.id === state.activeId) || null;
   const chatRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const exportDialogRef = useRef<HTMLDialogElement | null>(null);
   const apiDialogRef = useRef<HTMLDialogElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -201,6 +202,11 @@ const App = () => {
   const autoScrollRef = useRef(true);
   const lastActiveIdRef = useRef<string | null>(null);
   const [draftSettings, setDraftSettings] = useState<SettingsDraft>(state.settings);
+  const [exportSelection, setExportSelection] = useState<string[]>([]);
+  const [exportFormat, setExportFormat] = useState<"json" | "md" | "txt">("json");
+  const [importStatus, setImportStatus] = useState<string>("");
+  const [backupStatus, setBackupStatus] = useState<string>("");
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const appStyle = useMemo(
     () => ({ "--sidebar-width": `${state.settings.sidebarWidth}px` } as CSSProperties),
@@ -316,6 +322,8 @@ const App = () => {
 
   const openSettings = () => {
     setDraftSettings(state.settings);
+    setImportStatus("");
+    setBackupStatus("");
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (dialog.showModal) dialog.showModal();
@@ -335,6 +343,86 @@ const App = () => {
     });
     closeSettings();
   };
+
+  const openExportDialog = () => {
+    const dialog = exportDialogRef.current;
+    if (!dialog) return;
+    if (dialog.showModal) dialog.showModal();
+    else dialog.setAttribute("open", "true");
+  };
+
+  const closeExportDialog = () => {
+    const dialog = exportDialogRef.current;
+    if (!dialog) return;
+    dialog.close();
+  };
+
+  const downloadFile = (file: { filename: string; mime: string; content: string }) => {
+    const blob = new Blob([file.content], { type: file.mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBackupSettings = () => {
+    downloadFile(chatViewModel.exportSettingsBundle());
+  };
+
+  const handleBackupToClipboard = async () => {
+    try {
+      const bundle = chatViewModel.exportSettingsBundle();
+      await navigator.clipboard.writeText(bundle.content);
+      setBackupStatus("");
+    } catch {
+      setBackupStatus(chatViewModel.t("clipboardUnavailable"));
+    }
+  };
+
+  const handleImportSettings = async (file: File) => {
+    const text = await file.text();
+    const result = chatViewModel.importSettingsBundle(text);
+    if (result.ok) {
+      setDraftSettings(chatViewModel.getSnapshot().settings);
+      setImportStatus("");
+    } else {
+      setImportStatus(result.error || "Import failed.");
+    }
+  };
+
+  const handleImportFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const result = chatViewModel.importSettingsBundle(text);
+      if (result.ok) {
+        setDraftSettings(chatViewModel.getSnapshot().settings);
+        setImportStatus("");
+      } else {
+        setImportStatus(result.error || "Import failed.");
+      }
+    } catch {
+      setImportStatus(chatViewModel.t("clipboardUnavailable"));
+    }
+  };
+
+  const handleExportChats = () => {
+    const file = chatViewModel.exportHistoriesBundle(exportSelection, exportFormat);
+    downloadFile(file);
+  };
+
+  const toggleExportSelection = (id: string) => {
+    setExportSelection((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  useEffect(() => {
+    setExportSelection((prev) => prev.filter((id) => state.histories.some((h) => h.id === id)));
+  }, [state.histories]);
 
   const handleSend = async () => {
     if (!inputRef.current) return;
@@ -773,12 +861,140 @@ const App = () => {
             <div className="settings-hint">{chatViewModel.t("hintTitle")}</div>
           </div>
 
+          <div className="settings-row">
+            <label>{chatViewModel.t("settingsBackup")}</label>
+            <div className="settings-inline-actions">
+              <button className="btn" type="button" onClick={handleBackupSettings}>
+                {chatViewModel.t("backupToFile")}
+              </button>
+              <button className="btn" type="button" onClick={handleBackupToClipboard}>
+                {chatViewModel.t("backupToClipboard")}
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-row">
+            <label>{chatViewModel.t("importSettings")}</label>
+            <div className="settings-inline-actions">
+              <button
+                className="btn"
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+              >
+                {chatViewModel.t("importFromFile")}
+              </button>
+              <button className="btn" type="button" onClick={handleImportFromClipboard}>
+                {chatViewModel.t("importFromClipboard")}
+              </button>
+            </div>
+            {importStatus ? <div className="settings-hint">{importStatus}</div> : null}
+            {backupStatus ? <div className="settings-hint">{backupStatus}</div> : null}
+          </div>
+
+          <div className="settings-row">
+            <label>{chatViewModel.t("exportChats")}</label>
+            <div className="settings-inline-actions">
+              <button className="btn" type="button" onClick={openExportDialog}>
+                {chatViewModel.t("openExportDialog")}
+              </button>
+            </div>
+          </div>
+
           <div className="settings-actions">
             <button className="btn primary" value="default" onClick={saveSettings}>
               {chatViewModel.t("save")}
             </button>
           </div>
+          <input
+            ref={importInputRef}
+            type="file"
+            className="visually-hidden"
+            accept="application/json"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              if (file) {
+                void handleImportSettings(file);
+              }
+              event.currentTarget.value = "";
+            }}
+          />
         </form>
+      </dialog>
+
+      <dialog ref={exportDialogRef} className="settings-dialog">
+        <div className="settings-card">
+          <div className="settings-header">
+            <div className="settings-title">{chatViewModel.t("exportDialogTitle")}</div>
+            <button
+              className="icon-btn"
+              title={chatViewModel.t("close")}
+              onClick={closeExportDialog}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </div>
+          <div className="settings-row">
+            <div className="settings-hint">{chatViewModel.t("exportHint")}</div>
+            {state.histories.length === 0 ? (
+              <div className="settings-hint">{chatViewModel.t("exportEmpty")}</div>
+            ) : (
+              <>
+                <div className="export-controls">
+                  <div className="export-actions">
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => setExportSelection(state.histories.map((h) => h.id))}
+                    >
+                      {chatViewModel.t("exportSelectAll")}
+                    </button>
+                    <button className="btn" type="button" onClick={() => setExportSelection([])}>
+                      {chatViewModel.t("exportClear")}
+                    </button>
+                  </div>
+                  <div className="export-format">
+                    <span>{chatViewModel.t("exportFormat")}</span>
+                    <select
+                      value={exportFormat}
+                      onChange={(event) =>
+                        setExportFormat(event.target.value as "json" | "md" | "txt")
+                      }
+                    >
+                      <option value="json">{chatViewModel.t("exportFormatJson")}</option>
+                      <option value="md">{chatViewModel.t("exportFormatMd")}</option>
+                      <option value="txt">{chatViewModel.t("exportFormatTxt")}</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="export-list">
+                  {state.histories.map((history) => (
+                    <label key={history.id} className="export-item">
+                      <input
+                        type="checkbox"
+                        checked={exportSelection.includes(history.id)}
+                        onChange={() => toggleExportSelection(history.id)}
+                      />
+                      <span className="export-name">{history.name}</span>
+                      <span className="export-date">
+                        {chatViewModel.formatDate(history.updatedAt)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div className="settings-inline-actions">
+                  <button
+                    className="btn primary"
+                    type="button"
+                    onClick={handleExportChats}
+                    disabled={exportSelection.length === 0}
+                  >
+                    {chatViewModel.t("exportSelected")}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </dialog>
     </>
   );
