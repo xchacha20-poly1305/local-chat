@@ -8,6 +8,7 @@ import type {
 import {
   Camera,
   Check,
+  Copy,
   Paperclip,
   Pencil,
   RotateCcw,
@@ -25,6 +26,7 @@ type ChatMessageProps = {
   isEditing: boolean;
   editDraft: string;
   lang: keyof typeof I18N;
+  onCopy: (success: boolean) => void;
 };
 
 type AttachmentCardProps = {
@@ -92,13 +94,15 @@ const AttachmentCard = ({ attachment, compact = false, onRemove }: AttachmentCar
   );
 };
 
-const ChatMessage = memo(({ msg, index, isEditing, editDraft, lang }: ChatMessageProps) => {
+const ChatMessage = memo(
+  ({ msg, index, isEditing, editDraft, lang, onCopy }: ChatMessageProps) => {
   const labels = useMemo(
     () => ({
       confirm: chatViewModel.t("confirm"),
       cancel: chatViewModel.t("cancel"),
       rename: chatViewModel.t("rename"),
       delete: chatViewModel.t("delete"),
+      copy: chatViewModel.t("copy"),
     }),
     [lang]
   );
@@ -134,6 +138,20 @@ const ChatMessage = memo(({ msg, index, isEditing, editDraft, lang }: ChatMessag
           </>
         ) : (
           <>
+            <button
+              className="copy-btn"
+              title={labels.copy}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(msg.content || "");
+                  onCopy(true);
+                } catch {
+                  onCopy(false);
+                }
+              }}
+            >
+              <Copy aria-hidden="true" />
+            </button>
             <button
               className="edit-btn"
               title={labels.rename}
@@ -178,7 +196,8 @@ const ChatMessage = memo(({ msg, index, isEditing, editDraft, lang }: ChatMessag
       ) : null}
     </div>
   );
-});
+  }
+);
 
 type SettingsDraft = {
   sendShortcut: "ctrlEnter" | "shiftEnter" | "enter";
@@ -206,7 +225,11 @@ const App = () => {
   const [exportFormat, setExportFormat] = useState<"json" | "md" | "txt">("json");
   const [importStatus, setImportStatus] = useState<string>("");
   const [backupStatus, setBackupStatus] = useState<string>("");
+  const [toast, setToast] = useState<{ message: string; tone?: "success" | "error" } | null>(
+    null
+  );
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
 
   const appStyle = useMemo(
     () => ({ "--sidebar-width": `${state.settings.sidebarWidth}px` } as CSSProperties),
@@ -334,6 +357,19 @@ const App = () => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     dialog.close();
+  };
+
+  useEffect(() => {
+    if (!toast) return;
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, [toast]);
+
+  const showToast = (message: string, tone?: "success" | "error") => {
+    setToast({ message, tone });
   };
 
   const saveSettings = () => {
@@ -618,6 +654,12 @@ const App = () => {
                   isEditing={isEditing}
                   editDraft={isEditing ? state.editDraft : ""}
                   lang={state.currentLang}
+                  onCopy={(success) => {
+                    showToast(
+                      chatViewModel.t(success ? "toastCopied" : "toastCopyFailed"),
+                      success ? "success" : "error"
+                    );
+                  }}
                 />
               );
             })}
@@ -996,6 +1038,10 @@ const App = () => {
           </div>
         </div>
       </dialog>
+
+      <div className={`toast ${toast ? "show" : ""} ${toast?.tone || ""}`}>
+        {toast?.message}
+      </div>
     </>
   );
 };
