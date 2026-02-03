@@ -1193,7 +1193,6 @@ export class ChatViewModel {
       date: this.templateDate(),
       language: this.state.currentLang,
     })
-      .replaceAll("{history}", "")
       .trim();
   };
 
