@@ -660,10 +660,39 @@ const App = () => {
         <div className="api-card">
           <div className="api-title">{chatViewModel.t("apiTitle")}</div>
           <div className="api-text">{state.apiStatusText}</div>
+          {state.downloadProgress !== null ? (
+            <div className="download-progress">
+              <div className="download-progress-track">
+                <div
+                  className="download-progress-bar"
+                  style={{ width: `${Math.round(state.downloadProgress * 100)}%` }}
+                ></div>
+              </div>
+              <div className="download-progress-label">
+                {chatViewModel.t("apiDownloadProgress")}:{" "}
+                {Math.round(state.downloadProgress * 100)}%
+              </div>
+            </div>
+          ) : null}
           <div className="api-actions">
-            <button className="btn primary" onClick={() => void chatViewModel.forceUsePromptApi()}>
-              {chatViewModel.t("apiForceUse")}
-            </button>
+            {state.apiAvailability === "downloadable" ? (
+              <>
+                <button
+                  className="btn primary"
+                  onClick={() => void chatViewModel.startDownloadPromptApi()}
+                  disabled={state.downloadProgress !== null}
+                >
+                  {chatViewModel.t("apiDownloadNow")}
+                </button>
+                <button className="btn" onClick={() => void chatViewModel.forceUsePromptApi()}>
+                  {chatViewModel.t("apiForceUse")}
+                </button>
+              </>
+            ) : (
+              <button className="btn primary" onClick={() => void chatViewModel.forceUsePromptApi()}>
+                {chatViewModel.t("apiForceUse")}
+              </button>
+            )}
           </div>
         </div>
       </dialog>

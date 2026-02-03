@@ -78,6 +78,7 @@ body {
   background: var(--body-gradient);
   color: var(--text);
   height: 100vh;
+  overflow: hidden;
 }
 
 .app {
@@ -96,6 +97,7 @@ body {
   width: var(--sidebar-width);
   min-width: 220px;
   max-width: 420px;
+  min-height: 0;
 }
 
 .sidebar-resizer {
@@ -218,6 +220,7 @@ body.resizing {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
 }
 
 .history-group {
@@ -303,6 +306,7 @@ body.resizing {
   display: grid;
   grid-template-rows: auto 1fr auto;
   height: 100vh;
+  min-height: 0;
 }
 
 .topbar {
@@ -374,6 +378,7 @@ body.resizing {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 
 .message {
@@ -743,6 +748,33 @@ textarea {
 .api-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.download-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.download-progress-track {
+  height: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.download-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #1fe3a5, #2aa9ff);
+  width: 0%;
+  transition: width 0.2s ease;
+}
+
+.download-progress-label {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 

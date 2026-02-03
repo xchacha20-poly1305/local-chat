@@ -37,10 +37,12 @@ export const I18N = {
     apiChromeOnly: "仅支持 Chrome 浏览器，请使用 Chrome 运行此应用。",
     apiDownloadable:
       "Prompt API 可下载，请打开 chrome://components，点击 Optimization Guide On Device Model 的 Update 按钮。",
-    apiDownloading: "Prompt API 正在下载中...（每 1 秒检测一次）",
+    apiDownloading: "Prompt API 正在下载中...",
     apiNeedFlag: "Prompt API 不可用，请开启 chrome://flags/#prompt-api-for-gemini-nano。",
     apiTitle: "Prompt API",
     apiForceUse: "强制使用",
+    apiDownloadNow: "立即下载",
+    apiDownloadProgress: "下载进度",
     editMessage: "编辑消息",
     editCancel: "取消",
     editSave: "保存",
@@ -87,10 +89,12 @@ export const I18N = {
     apiChromeOnly: "This app only supports Chrome. Please use Chrome.",
     apiDownloadable:
       "Prompt API is downloadable. Open chrome://components and click Update for Optimization Guide On Device Model.",
-    apiDownloading: "Prompt API is downloading... (checking every 1s)",
+    apiDownloading: "Prompt API is downloading...",
     apiNeedFlag: "Prompt API is unavailable. Enable chrome://flags/#prompt-api-for-gemini-nano.",
     apiTitle: "Prompt API",
     apiForceUse: "Force Use",
+    apiDownloadNow: "Download Now",
+    apiDownloadProgress: "Download progress",
     editMessage: "Edit Message",
     editCancel: "Cancel",
     editSave: "Save",
@@ -170,6 +174,7 @@ export type State = {
   statusText: string;
   apiStatusText: string;
   apiAvailability: ApiAvailability;
+  downloadProgress: number | null;
   settings: Settings;
   currentLang: keyof typeof I18N;
   renameTargetId: string | null;
@@ -203,10 +208,11 @@ type PromptCreateOptions = {
   initialPrompts?: InitialPrompt[];
   expectedInputs?: ExpectedInput[];
   expectedOutputs?: ExpectedOutput[];
+  monitor?: (monitor: EventTarget) => void;
 };
 
 type PromptAPI = {
-  availability: (options?: Pick<PromptCreateOptions, "expectedInputs" | "expectedOutputs">) => Promise<
+  availability?: (options?: Pick<PromptCreateOptions, "expectedInputs" | "expectedOutputs">) => Promise<
     "no" | "available" | "downloadable" | "downloading"
   >;
   create: (options: PromptCreateOptions) => Promise<PromptSession>;
@@ -252,6 +258,7 @@ export class ChatViewModel {
   private readonly maxChatSessions = 8;
   private availabilityTimer: number | null = null;
   private availabilityInFlight = false;
+  private downloadInFlight = false;
   private streamToken: { historyId: string; cancelled: boolean } | null = null;
   private state: State;
 
@@ -271,6 +278,7 @@ export class ChatViewModel {
       statusText: "",
       apiStatusText: "",
       apiAvailability: "unknown",
+      downloadProgress: null,
       settings,
       currentLang,
       renameTargetId: null,
@@ -328,6 +336,8 @@ export class ChatViewModel {
       ...prev,
       apiAvailability: status,
       apiStatusText: this.formatApiStatusText(status, prev.currentLang),
+      downloadProgress:
+        status === "downloadable" || status === "downloading" ? prev.downloadProgress : null,
     }));
   }
 
@@ -348,6 +358,7 @@ export class ChatViewModel {
     if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
     this.availabilityTimer = null;
     this.availabilityInFlight = true;
+    this.setState((prev) => ({ ...prev, apiStatusText: "" }));
 
     if (!this.isChromeOnly()) {
       this.setApiAvailability("chromeOnly");
@@ -364,6 +375,38 @@ export class ChatViewModel {
       if (this.state.apiAvailability !== "downloading") {
         this.availabilityInFlight = false;
       }
+    }
+  };
+
+  startDownloadPromptApi = async () => {
+    if (this.downloadInFlight) return;
+    this.downloadInFlight = true;
+    this.setApiAvailability("downloading");
+    this.setState((prev) => ({ ...prev, downloadProgress: 0 }));
+
+    try {
+      const lm = this.getPromptApi();
+      const expected = this.buildExpectedOptions(this.textOnlyModalities());
+      await lm.create({
+        temperature: 0.7,
+        topK: 40,
+        ...expected,
+        monitor: (monitor) => {
+          monitor.addEventListener?.("downloadprogress", (event) => {
+            const loaded = (event as { loaded?: number }).loaded;
+            if (typeof loaded !== "number") return;
+            const progress = Math.max(0, Math.min(1, loaded));
+            this.setState((prev) => ({ ...prev, downloadProgress: progress }));
+          });
+        },
+      });
+      this.setApiAvailability("ready");
+      this.setState((prev) => ({ ...prev, apiStatusText: "", downloadProgress: null }));
+    } catch {
+      await this.checkAvailability();
+      this.setState((prev) => ({ ...prev, downloadProgress: null }));
+    } finally {
+      this.downloadInFlight = false;
     }
   };
 
@@ -1041,9 +1084,16 @@ export class ChatViewModel {
       .trim();
   };
 
+  private getPromptApiMaybe() {
+    return (
+      (window as unknown as { ai?: { languageModel?: PromptAPI } }).ai?.languageModel ||
+      (window as unknown as { LanguageModel?: PromptAPI }).LanguageModel ||
+      null
+    );
+  }
+
   private getPromptApi() {
-    const lm = (window as unknown as { ai?: { languageModel?: PromptAPI } }).ai?.languageModel ||
-      (window as unknown as { LanguageModel?: PromptAPI }).LanguageModel;
+    const lm = this.getPromptApiMaybe();
     if (!lm) throw new Error("未检测到 Chrome Prompt API");
     return lm;
   }
@@ -1062,11 +1112,19 @@ export class ChatViewModel {
       return;
     }
 
-    const lm = (window as unknown as { LanguageModel?: PromptAPI }).LanguageModel;
+    const lm = this.getPromptApiMaybe();
     if (!lm) {
       if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
       this.availabilityTimer = null;
       this.setApiAvailability("needFlag");
+      this.availabilityInFlight = false;
+      return;
+    }
+
+    if (typeof lm.availability !== "function") {
+      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
+      this.availabilityTimer = null;
+      this.setApiAvailability("ready");
       this.availabilityInFlight = false;
       return;
     }
@@ -1114,7 +1172,8 @@ export class ChatViewModel {
   private async createSession(modalities: Set<PromptModality>) {
     const lm = this.getPromptApi();
     const expected = this.buildExpectedOptions(modalities);
-    const availability = await lm.availability(expected);
+    const availability =
+      typeof lm.availability === "function" ? await lm.availability(expected) : "available";
     if (availability === "no") throw new Error("Prompt API 不可用");
     const systemPrompt = this.buildSystemPrompt();
     const initialPrompts = systemPrompt ? [{ role: "system", content: systemPrompt }] : undefined;
