@@ -60,7 +60,7 @@ export const I18N = {
     templateTitle: "标题总结模板",
     save: "保存",
     hintChat: "可用变量：{date} {language}",
-    hintTitle: "可用变量：{date} {language} {user} {assistant}",
+    hintTitle: "可用变量：{date} {language} {user} {assistant}。留空将禁用自动生成标题。",
     roleUser: "用户",
     roleAssistant: "助手",
     locale: "zh-CN",
@@ -112,7 +112,7 @@ export const I18N = {
     templateTitle: "Title Summary Template",
     save: "Save",
     hintChat: "Available variables: {date} {language}",
-    hintTitle: "Available variables: {date} {language} {user} {assistant}",
+    hintTitle: "Available variables: {date} {language} {user} {assistant}. Leave empty to disable auto title.",
     roleUser: "User",
     roleAssistant: "Assistant",
     locale: "en-US",
@@ -1292,6 +1292,7 @@ export class ChatViewModel {
   private async maybeAutoTitle() {
     const history = this.getActive();
     if (!history || history.autoTitleDone) return;
+    if (!this.state.settings.titleTemplate.trim()) return;
 
     const firstUser = history.messages.find((m) => m.role === "user" && m.content.trim());
     const firstAssistant = history.messages.find(
