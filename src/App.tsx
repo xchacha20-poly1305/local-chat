@@ -17,6 +17,7 @@ import {
   Video,
   X,
 } from "lucide-react";
+import { navigate } from "./navigation";
 import { chatViewModel, I18N, renderMarkdown } from "./viewmodel";
 import type { Attachment, Message } from "./viewmodel";
 
@@ -542,6 +543,9 @@ const App = () => {
           <div className="actions">
             <button className="btn primary" onClick={() => chatViewModel.newChat()}>
               {chatViewModel.t("newChat")}
+            </button>
+            <button className="btn" onClick={() => navigate("/translate")}>
+              {chatViewModel.t("translate")}
             </button>
             <button className="btn" onClick={openSettings}>
               {chatViewModel.t("settings")}
