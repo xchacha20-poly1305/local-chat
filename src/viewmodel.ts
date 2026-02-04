@@ -27,11 +27,17 @@ export const I18N = {
     stop: "停止",
     uploadFile: "上传文件",
     attachPhoto: "拍照",
-    attachVideo: "拍视频",
+    attachAudio: "录音",
     attachments: "附件",
     remove: "移除",
     attachmentPreviewUnavailable: "预览不可用",
     attachmentTemp: "预览仅当前会话可用",
+    openPreview: "打开预览",
+    recordStart: "开始录音",
+    recordStop: "停止录音",
+    recording: "录音中...",
+    recordPermissionDenied: "无法获取麦克风权限。",
+    recordUnavailable: "当前浏览器不支持录音。",
     inputPlaceholder: "输入内容，按 Ctrl/⌘ + Enter 发送",
     statusStreaming: "模型输出中...",
     statusError: "发生错误：",
@@ -104,11 +110,17 @@ export const I18N = {
     stop: "Stop",
     uploadFile: "Upload",
     attachPhoto: "Photo",
-    attachVideo: "Video",
+    attachAudio: "Audio",
     attachments: "Attachments",
     remove: "Remove",
     attachmentPreviewUnavailable: "Preview unavailable",
     attachmentTemp: "Preview available this session only",
+    openPreview: "Open preview",
+    recordStart: "Start recording",
+    recordStop: "Stop recording",
+    recording: "Recording...",
+    recordPermissionDenied: "Microphone permission denied.",
+    recordUnavailable: "Recording is not supported in this browser.",
     inputPlaceholder: "Type here, press Ctrl/⌘ + Enter to send",
     statusStreaming: "Model is responding...",
     statusError: "Error: ",
@@ -173,7 +185,7 @@ type Role = "user" | "assistant";
 type SendShortcut = "ctrlEnter" | "shiftEnter" | "enter";
 export type ThemeMode = "system" | "light" | "dark";
 
-export type AttachmentKind = "text" | "image" | "video";
+export type AttachmentKind = "text" | "image" | "audio";
 
 export type Attachment = {
   id: string;
@@ -231,6 +243,8 @@ export type State = {
   renameDraft: string;
   renameSource: RenameSource;
   composerAttachments: Attachment[];
+  previewAttachment: Attachment | null;
+  recording: boolean;
 };
 
 type Listener = () => void;
@@ -276,6 +290,10 @@ export class ChatViewModel {
   private availabilityInFlight = false;
   private downloadInFlight = false;
   private streamToken: { historyId: string; cancelled: boolean } | null = null;
+  private mediaRecorder: MediaRecorder | null = null;
+  private recordChunks: Blob[] = [];
+  private recordStream: MediaStream | null = null;
+  private recordDiscard = false;
   private state: State;
 
   constructor() {
@@ -301,6 +319,8 @@ export class ChatViewModel {
       renameDraft: "",
       renameSource: null,
       composerAttachments: [],
+      previewAttachment: null,
+      recording: false,
     };
 
     if (this.state.histories.length === 1 && !activeId) {
@@ -703,6 +723,7 @@ export class ChatViewModel {
   };
 
   newChat = () => {
+    if (this.state.recording) this.cancelRecording();
     this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => {
       const history = this.createHistory(prev.currentLang);
@@ -715,11 +736,13 @@ export class ChatViewModel {
         editingIndex: null,
         editDraft: "",
         composerAttachments: [],
+        previewAttachment: null,
       };
     });
   };
 
   setActive = (id: string) => {
+    if (this.state.recording) this.cancelRecording();
     this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => ({
       ...prev,
@@ -730,10 +753,12 @@ export class ChatViewModel {
       renameDraft: "",
       renameSource: null,
       composerAttachments: [],
+      previewAttachment: null,
     }));
   };
 
   deleteActive = () => {
+    if (this.state.recording) this.cancelRecording();
     const activeId = this.state.activeId;
     if (activeId) {
       if (this.state.streamingId === activeId) {
@@ -755,7 +780,7 @@ export class ChatViewModel {
       const histories = [next, ...remaining];
       const activeId = next.id;
       this.saveHistories(histories);
-      return { ...prev, histories, activeId, composerAttachments: [] };
+      return { ...prev, histories, activeId, composerAttachments: [], previewAttachment: null };
     });
   };
 
@@ -865,9 +890,10 @@ export class ChatViewModel {
     const type = (file.type || "").toLowerCase();
     if (type.startsWith("text/")) return "text";
     if (type.startsWith("image/")) return "image";
-    if (type.startsWith("video/")) return "video";
+    if (type.startsWith("audio/")) return "audio";
     const name = file.name.toLowerCase();
     if (/\.(txt|md|csv|json|yaml|yml|log)$/.test(name)) return "text";
+    if (/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/.test(name)) return "audio";
     return null;
   };
 
@@ -919,8 +945,108 @@ export class ChatViewModel {
     if (target?.transientUrl) URL.revokeObjectURL(target.transientUrl);
     this.setState((prev) => ({
       ...prev,
+      previewAttachment:
+        prev.previewAttachment && prev.previewAttachment.id === id
+          ? null
+          : prev.previewAttachment,
       composerAttachments: prev.composerAttachments.filter((item) => item.id !== id),
     }));
+  };
+
+  private recordingExtension = (mime: string) => {
+    const lower = mime.toLowerCase();
+    if (lower.includes("ogg")) return "ogg";
+    if (lower.includes("mpeg") || lower.includes("mp3")) return "mp3";
+    if (lower.includes("wav")) return "wav";
+    if (lower.includes("mp4") || lower.includes("m4a")) return "m4a";
+    if (lower.includes("webm")) return "webm";
+    return "audio";
+  };
+
+  private async addRecordingBlob(blob: Blob) {
+    const mime = blob.type || "audio/webm";
+    const ext = this.recordingExtension(mime);
+    const file = new File([blob], `recording-${this.fileStamp()}.${ext}`, { type: mime });
+    const attachment = await this.buildAttachment(file);
+    if (!attachment) return;
+    this.setState((prev) => ({
+      ...prev,
+      composerAttachments: [...prev.composerAttachments, attachment],
+    }));
+  }
+
+  private cleanupRecording = () => {
+    if (this.recordStream) {
+      this.recordStream.getTracks().forEach((track) => track.stop());
+    }
+    this.recordStream = null;
+    this.mediaRecorder = null;
+    this.recordChunks = [];
+  };
+
+  startRecording = async () => {
+    if (this.state.recording) return;
+    if (this.state.streaming) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      this.setState((prev) => ({ ...prev, statusText: this.t("recordUnavailable") }));
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      this.recordDiscard = false;
+      this.recordChunks = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) this.recordChunks.push(event.data);
+      };
+      recorder.onstop = async () => {
+        if (this.recordDiscard) {
+          this.recordDiscard = false;
+          this.cleanupRecording();
+          return;
+        }
+        const blob = new Blob(this.recordChunks, { type: recorder.mimeType || "audio/webm" });
+        this.cleanupRecording();
+        await this.addRecordingBlob(blob);
+      };
+      recorder.onerror = () => {
+        this.cleanupRecording();
+        this.setState((prev) => ({ ...prev, recording: false }));
+      };
+      this.mediaRecorder = recorder;
+      this.recordStream = stream;
+      recorder.start();
+      this.setState((prev) => ({ ...prev, recording: true, statusText: this.t("recording") }));
+    } catch {
+      this.cleanupRecording();
+      this.setState((prev) => ({ ...prev, recording: false, statusText: this.t("recordPermissionDenied") }));
+    }
+  };
+
+  stopRecording = () => {
+    if (!this.mediaRecorder) return;
+    this.recordDiscard = false;
+    this.mediaRecorder.stop();
+    this.setState((prev) => ({ ...prev, recording: false, statusText: "" }));
+  };
+
+  cancelRecording = () => {
+    if (!this.mediaRecorder) return;
+    this.recordDiscard = true;
+    this.mediaRecorder.stop();
+    this.setState((prev) => ({ ...prev, recording: false, statusText: "" }));
+  };
+
+  openAttachmentPreview = (attachment: Attachment) => {
+    if (attachment.kind === "text") return;
+    const previewUrl = attachment.dataUrl || attachment.transientUrl;
+    if (!previewUrl) return;
+    this.setState((prev) => ({ ...prev, previewAttachment: attachment }));
+  };
+
+  closeAttachmentPreview = () => {
+    if (!this.state.previewAttachment) return;
+    this.setState((prev) => ({ ...prev, previewAttachment: null }));
   };
 
   private revokeAttachments = (attachments?: Attachment[]) => {
@@ -986,6 +1112,7 @@ export class ChatViewModel {
       const history = this.getActive(prev);
       if (!history) return prev;
       if (index < 0 || index >= history.messages.length) return prev;
+      const previewIds = new Set(target?.attachments?.map((attachment) => attachment.id));
       const histories = prev.histories.map((h) =>
         h.id === history.id
           ? {
@@ -996,7 +1123,14 @@ export class ChatViewModel {
           : h
       );
       this.saveHistories(histories);
-      return { ...prev, histories };
+      return {
+        ...prev,
+        histories,
+        previewAttachment:
+          prev.previewAttachment && previewIds.has(prev.previewAttachment.id)
+            ? null
+            : prev.previewAttachment,
+      };
     });
   };
 
@@ -1233,8 +1367,17 @@ export class ChatViewModel {
     if (attachment.kind === "text") {
       return [{ type: "text", value: this.formatTextAttachment(attachment) }];
     }
-    if (attachment.kind === "video") {
-      return [{ type: "text", value: this.formatAttachmentLabel(attachment) }];
+    if (attachment.kind === "audio") {
+      const label = this.formatAttachmentLabel(attachment);
+      const blob = await this.loadAttachmentBlob(attachment);
+      if (!blob) {
+        return [{ type: "text", value: `${label}\n[preview unavailable]` }];
+      }
+      const buffer = await blob.arrayBuffer();
+      return [
+        { type: "text", value: label },
+        { type: "audio", value: buffer },
+      ];
     }
     const label = this.formatAttachmentLabel(attachment);
     const blob = await this.loadAttachmentBlob(attachment);
@@ -1272,6 +1415,9 @@ export class ChatViewModel {
       for (const attachment of message.attachments ?? []) {
         if (attachment.kind === "image") {
           modalities.add("image");
+        }
+        if (attachment.kind === "audio") {
+          modalities.add("audio");
         }
       }
     }

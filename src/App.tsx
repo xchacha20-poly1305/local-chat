@@ -7,6 +7,7 @@ import type {
 } from "react";
 import {
   Camera,
+  Circle,
   Check,
   Copy,
   Paperclip,
@@ -15,7 +16,7 @@ import {
   RotateCcw,
   Square,
   Trash2,
-  Video,
+  Mic,
   X,
 } from "lucide-react";
 import { navigate } from "./navigation";
@@ -46,8 +47,21 @@ const AttachmentCard = ({ attachment, compact = false, onRemove }: AttachmentCar
   const sizeLabel = chatViewModel.formatBytes(attachment.size);
   const showTempNote = Boolean(attachment.transientUrl && !attachment.dataUrl);
   const textPreview = attachment.text?.trim() || "";
+  const canPreview = Boolean(previewUrl) && attachment.kind === "image";
+  const previewLabel = chatViewModel.t("openPreview");
+  const handlePreview = () => {
+    if (!canPreview) return;
+    chatViewModel.openAttachmentPreview(attachment);
+  };
+  const handlePreviewKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!canPreview) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handlePreview();
+    }
+  };
   return (
-    <div className={`attachment ${compact ? "compact" : ""}`}>
+    <div className={`attachment ${compact ? "compact" : ""} kind-${attachment.kind}`}>
       <div className="attachment-head">
         <div className="attachment-name">{attachment.name}</div>
         <div className="attachment-size">{sizeLabel}</div>
@@ -59,22 +73,26 @@ const AttachmentCard = ({ attachment, compact = false, onRemove }: AttachmentCar
       ) : null}
       {attachment.kind === "image" ? (
         previewUrl ? (
-          <img src={previewUrl} alt={attachment.name} loading="lazy" />
+          <div
+            className={`attachment-media ${canPreview ? "interactive" : ""}`}
+            onClick={handlePreview}
+            onKeyDown={handlePreviewKeyDown}
+            role={canPreview ? "button" : undefined}
+            tabIndex={canPreview ? 0 : -1}
+            title={canPreview ? previewLabel : undefined}
+            aria-label={canPreview ? previewLabel : undefined}
+          >
+            <img src={previewUrl} alt={attachment.name} loading="lazy" />
+          </div>
         ) : (
           <div className="attachment-placeholder">
             {chatViewModel.t("attachmentPreviewUnavailable")}
           </div>
         )
       ) : null}
-      {attachment.kind === "video" ? (
+      {attachment.kind === "audio" ? (
         previewUrl ? (
-          <video
-            src={previewUrl}
-            controls={!compact}
-            muted={compact}
-            playsInline
-            preload="metadata"
-          />
+          <audio src={previewUrl} controls preload="metadata" />
         ) : (
           <div className="attachment-placeholder">
             {chatViewModel.t("attachmentPreviewUnavailable")}
@@ -238,9 +256,10 @@ const App = () => {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const exportDialogRef = useRef<HTMLDialogElement | null>(null);
   const apiDialogRef = useRef<HTMLDialogElement | null>(null);
+  const previewDialogRef = useRef<HTMLDialogElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
   const suppressRenameBlurRef = useRef(false);
   const resizeRef = useRef({ startX: 0, startWidth: 0, active: false });
   const autoScrollRef = useRef(true);
@@ -320,6 +339,19 @@ const App = () => {
   }, [state.apiStatusText]);
 
   useEffect(() => {
+    const dialog = previewDialogRef.current;
+    if (!dialog) return;
+    if (state.previewAttachment) {
+      if (!dialog.open) {
+        if (dialog.showModal) dialog.showModal();
+        else dialog.setAttribute("open", "true");
+      }
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [state.previewAttachment]);
+
+  useEffect(() => {
     const root = document.documentElement;
     const mode = state.settings.theme;
     if (mode === "system") {
@@ -396,6 +428,11 @@ const App = () => {
   const showToast = (message: string, tone?: "success" | "error") => {
     setToast({ message, tone });
   };
+
+  const previewAttachment = state.previewAttachment;
+  const previewUrl = previewAttachment ? getAttachmentPreviewUrl(previewAttachment) : "";
+  const closePreview = () => chatViewModel.closeAttachmentPreview();
+  const isRecording = state.recording;
 
   const saveSettings = () => {
     chatViewModel.updateSettings({
@@ -806,13 +843,24 @@ const App = () => {
                   <Camera aria-hidden="true" />
                 </button>
                 <button
-                  className="icon-btn"
-                  title={chatViewModel.t("attachVideo")}
-                  aria-label={chatViewModel.t("attachVideo")}
-                  onClick={() => videoInputRef.current?.click()}
+                  className={`icon-btn ${isRecording ? "recording" : ""}`}
+                  title={chatViewModel.t(isRecording ? "recordStop" : "recordStart")}
+                  aria-label={chatViewModel.t(isRecording ? "recordStop" : "recordStart")}
+                  onClick={() =>
+                    isRecording ? chatViewModel.stopRecording() : void chatViewModel.startRecording()
+                  }
                   disabled={state.streaming}
                 >
-                  <Video aria-hidden="true" />
+                  {isRecording ? <Square aria-hidden="true" /> : <Circle aria-hidden="true" />}
+                </button>
+                <button
+                  className="icon-btn"
+                  title={chatViewModel.t("attachAudio")}
+                  aria-label={chatViewModel.t("attachAudio")}
+                  onClick={() => audioInputRef.current?.click()}
+                  disabled={state.streaming}
+                >
+                  <Mic aria-hidden="true" />
                 </button>
               </div>
               <div className="composer-send">
@@ -837,7 +885,7 @@ const App = () => {
               ref={fileInputRef}
               type="file"
               className="visually-hidden"
-              accept="text/*,image/*,video/*"
+              accept="text/*,image/*,audio/*"
               multiple
               onChange={(event) => {
                 const files = event.currentTarget.files;
@@ -862,11 +910,10 @@ const App = () => {
               }}
             />
             <input
-              ref={videoInputRef}
+              ref={audioInputRef}
               type="file"
               className="visually-hidden"
-              accept="video/*"
-              capture="environment"
+              accept="audio/*"
               onChange={(event) => {
                 const files = event.currentTarget.files;
                 if (files && files.length > 0) {
@@ -920,6 +967,53 @@ const App = () => {
                 {chatViewModel.t("apiForceUse")}
               </button>
             )}
+          </div>
+        </div>
+      </dialog>
+
+      <dialog
+        ref={previewDialogRef}
+        className="preview-dialog"
+        onCancel={(event) => {
+          event.preventDefault();
+          closePreview();
+        }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) closePreview();
+        }}
+      >
+        <div className="preview-card">
+          <div className="preview-header">
+            <div className="preview-title">
+              {previewAttachment?.name || chatViewModel.t("attachments")}
+            </div>
+            <button
+              className="icon-btn"
+              title={chatViewModel.t("close")}
+              onClick={closePreview}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </div>
+          <div className="preview-body">
+            {previewAttachment?.kind === "image" ? (
+              previewUrl ? (
+                <img className="preview-media" src={previewUrl} alt={previewAttachment.name} />
+              ) : (
+                <div className="attachment-placeholder">
+                  {chatViewModel.t("attachmentPreviewUnavailable")}
+                </div>
+              )
+            ) : null}
+            {previewAttachment?.kind === "audio" ? (
+              previewUrl ? (
+                <audio className="preview-media" src={previewUrl} controls autoPlay />
+              ) : (
+                <div className="attachment-placeholder">
+                  {chatViewModel.t("attachmentPreviewUnavailable")}
+                </div>
+              )
+            ) : null}
           </div>
         </div>
       </dialog>

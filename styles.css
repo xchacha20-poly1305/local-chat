@@ -431,6 +431,12 @@ body.resizing {
   color: #1fe3a5;
 }
 
+.icon-btn.recording {
+  background: transparent;
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+
 .icon-btn svg {
   width: 16px;
   height: 16px;
@@ -619,10 +625,15 @@ textarea {
   border: 1px solid var(--border);
   display: grid;
   gap: 8px;
+  overflow: hidden;
 }
 
 .attachment.compact {
   width: 200px;
+}
+
+.attachment.compact.kind-audio {
+  width: 280px;
 }
 
 .attachment-head {
@@ -661,17 +672,37 @@ textarea {
 }
 
 .attachment img,
-.attachment video {
+.attachment video,
+.attachment audio {
   width: 100%;
+  display: block;
   max-height: 220px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   object-fit: cover;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--code);
 }
 
+.attachment-media {
+  display: block;
+}
+
+.attachment-media.interactive {
+  cursor: zoom-in;
+}
+
+.attachment-media.interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
 .attachment.compact img,
-.attachment.compact video {
+.attachment.compact video,
+.attachment.compact audio {
   max-height: 120px;
 }
 
@@ -714,6 +745,64 @@ textarea {
   width: 14px;
   height: 14px;
   stroke: currentColor;
+}
+
+.preview-dialog::backdrop {
+  background: rgba(6, 10, 18, 0.66);
+}
+
+.preview-dialog {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+.preview-card {
+  width: min(92vw, 980px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  box-shadow: 0 28px 70px rgba(8, 12, 20, 0.45);
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preview-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-body {
+  background: var(--code);
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+}
+
+.preview-media {
+  max-width: 100%;
+  max-height: min(72vh, 720px);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.preview-media:is(audio) {
+  width: 100%;
 }
 
 .visually-hidden {
