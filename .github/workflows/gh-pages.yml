@@ -30,7 +30,7 @@ jobs:
         run: bun run build
 
       - name: Publish to gh-pages
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/dev'
         env:
           REPO: ${{ github.repository }}
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
