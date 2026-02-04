@@ -11,6 +11,7 @@ import {
   Copy,
   Paperclip,
   Pencil,
+  RefreshCw,
   RotateCcw,
   Square,
   Trash2,
@@ -27,6 +28,7 @@ type ChatMessageProps = {
   isEditing: boolean;
   editDraft: string;
   lang: keyof typeof I18N;
+  showRegenerate: boolean;
   onCopy: (success: boolean) => void;
 };
 
@@ -96,7 +98,7 @@ const AttachmentCard = ({ attachment, compact = false, onRemove }: AttachmentCar
 };
 
 const ChatMessage = memo(
-  ({ msg, index, isEditing, editDraft, lang, onCopy }: ChatMessageProps) => {
+  ({ msg, index, isEditing, editDraft, lang, showRegenerate, onCopy }: ChatMessageProps) => {
   const labels = useMemo(
     () => ({
       confirm: chatViewModel.t("confirm"),
@@ -104,6 +106,7 @@ const ChatMessage = memo(
       rename: chatViewModel.t("rename"),
       delete: chatViewModel.t("delete"),
       copy: chatViewModel.t("copy"),
+      regenerate: chatViewModel.t("regenerate"),
     }),
     [lang]
   );
@@ -139,6 +142,19 @@ const ChatMessage = memo(
           </>
         ) : (
           <>
+            {showRegenerate ? (
+              <button
+                className="regen-btn"
+                title={labels.regenerate}
+                onClick={() =>
+                  msg.role === "assistant"
+                    ? void chatViewModel.regenerateFromAssistant(index)
+                    : void chatViewModel.regenerateFromUser(index)
+                }
+              >
+                <RefreshCw aria-hidden="true" />
+              </button>
+            ) : null}
             <button
               className="copy-btn"
               title={labels.copy}
@@ -211,6 +227,13 @@ type SettingsDraft = {
 const App = () => {
   const state = useSyncExternalStore(chatViewModel.subscribe, chatViewModel.getSnapshot);
   const active = state.histories.find((h) => h.id === state.activeId) || null;
+  const lastNonAssistantIndex = (() => {
+    if (!active) return -1;
+    for (let i = active.messages.length - 1; i >= 0; i -= 1) {
+      if (active.messages[i].role !== "assistant") return i;
+    }
+    return -1;
+  })();
   const chatRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const exportDialogRef = useRef<HTMLDialogElement | null>(null);
@@ -717,6 +740,8 @@ const App = () => {
           <section className="chat" id="chat" ref={chatRef}>
             {active?.messages.map((msg, index) => {
               const isEditing = state.editingIndex === index;
+              const showRegenerate =
+                !state.streaming && (msg.role === "assistant" || index === lastNonAssistantIndex);
               return (
                 <ChatMessage
                   key={`${msg.ts}-${index}`}
@@ -725,6 +750,7 @@ const App = () => {
                   isEditing={isEditing}
                   editDraft={isEditing ? state.editDraft : ""}
                   lang={state.currentLang}
+                  showRegenerate={showRegenerate}
                   onCopy={(success) => {
                     showToast(
                       chatViewModel.t(success ? "toastCopied" : "toastCopyFailed"),

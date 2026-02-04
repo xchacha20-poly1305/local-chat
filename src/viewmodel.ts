@@ -48,6 +48,7 @@ export const I18N = {
     editCancel: "取消",
     editSave: "保存",
     resend: "从此处重发",
+    regenerate: "重新生成",
     copy: "复制",
     toastCopied: "已复制到剪贴板",
     toastCopyFailed: "复制失败",
@@ -124,6 +125,7 @@ export const I18N = {
     editCancel: "Cancel",
     editSave: "Save",
     resend: "Resend from here",
+    regenerate: "Regenerate",
     copy: "Copy",
     toastCopied: "Copied to clipboard",
     toastCopyFailed: "Copy failed",
@@ -1015,6 +1017,103 @@ export class ChatViewModel {
         h.id === active.id
           ? { ...h, messages: nextMessages, updatedAt: Date.now() }
           : h
+      );
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        editingIndex: null,
+        editDraft: "",
+        streaming: true,
+        streamingId: active.id,
+        statusText: this.t("statusStreaming"),
+      };
+    });
+
+    const active = this.getActive();
+    if (!active) return;
+    const targetId = active.id;
+    const token = this.beginStreaming(targetId);
+
+    try {
+      const { prompt, modalities } = await this.buildChatPrompt(active);
+      const cancelled = await this.streamAssistant(prompt, targetId, token, modalities);
+      if (cancelled) return;
+    } catch (err) {
+      if (!token.cancelled) this.failAssistant(err, targetId);
+    } finally {
+      this.finishStreaming(targetId);
+    }
+  };
+
+  regenerateFromAssistant = async (index: number) => {
+    if (this.state.streaming) return;
+    const history = this.getActive();
+    const msg = history?.messages[index];
+    if (!history || !msg || msg.role !== "assistant") return;
+    const removed = history.messages.slice(index + 1);
+    removed.forEach((item) => {
+      if (item.attachments) this.revokeAttachments(item.attachments);
+    });
+
+    this.setState((prev) => {
+      const active = this.getActive(prev);
+      if (!active) return prev;
+      if (index < 0 || index >= active.messages.length) return prev;
+      if (active.messages[index].role !== "assistant") return prev;
+      const messages = active.messages.slice(0, index + 1).map((m, i) =>
+        i === index ? { ...m, content: "", ts: Date.now() } : m
+      );
+      const histories = prev.histories.map((h) =>
+        h.id === active.id ? { ...h, messages, updatedAt: Date.now() } : h
+      );
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        editingIndex: null,
+        editDraft: "",
+        streaming: true,
+        streamingId: active.id,
+        statusText: this.t("statusStreaming"),
+      };
+    });
+
+    const active = this.getActive();
+    if (!active) return;
+    const targetId = active.id;
+    const token = this.beginStreaming(targetId);
+
+    try {
+      const { prompt, modalities } = await this.buildChatPrompt(active);
+      const cancelled = await this.streamAssistant(prompt, targetId, token, modalities);
+      if (cancelled) return;
+    } catch (err) {
+      if (!token.cancelled) this.failAssistant(err, targetId);
+    } finally {
+      this.finishStreaming(targetId);
+    }
+  };
+
+  regenerateFromUser = async (index: number) => {
+    if (this.state.streaming) return;
+    const history = this.getActive();
+    const msg = history?.messages[index];
+    if (!history || !msg || msg.role !== "user") return;
+    const removed = history.messages.slice(index + 1);
+    removed.forEach((item) => {
+      if (item.attachments) this.revokeAttachments(item.attachments);
+    });
+
+    this.setState((prev) => {
+      const active = this.getActive(prev);
+      if (!active) return prev;
+      if (index < 0 || index >= active.messages.length) return prev;
+      if (active.messages[index].role !== "user") return prev;
+      const nextMessages = active.messages.slice(0, index + 1);
+      nextMessages.push({ role: "assistant", content: "", ts: Date.now() });
+      const histories = prev.histories.map((h) =>
+        h.id === active.id ? { ...h, messages: nextMessages, updatedAt: Date.now() } : h
       );
       this.saveHistories(histories);
       return {
