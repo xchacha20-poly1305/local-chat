@@ -544,7 +544,7 @@ const App = () => {
             <button className="btn primary" onClick={() => chatViewModel.newChat()}>
               {chatViewModel.t("newChat")}
             </button>
-            <button className="btn" onClick={() => navigate("/translate")}>
+            <button className="btn" onClick={() => navigate("./translate")}>
               {chatViewModel.t("translate")}
             </button>
             <button className="btn" onClick={openSettings}>

@@ -5,8 +5,9 @@ import TranslatePage from "./TranslatePage";
 type Route = "chat" | "translate";
 
 const getRoute = (): Route => {
-  const path = window.location.pathname;
-  if (path === "/translate" || path.startsWith("/translate/")) {
+  const raw = window.location.pathname || "/";
+  const path = raw.replace(/\/+$/, "");
+  if (path.endsWith("/translate")) {
     return "translate";
   }
   return "chat";

@@ -190,7 +190,7 @@ const TranslatePage = () => {
               ))}
             </select>
           </div>
-          <button className="btn" onClick={() => navigate("/")}>
+          <button className="btn" onClick={() => navigate("./")}>
             <ArrowLeft aria-hidden="true" />
             <span>{translateViewModel.t("backToChat")}</span>
           </button>
