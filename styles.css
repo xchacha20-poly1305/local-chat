@@ -457,7 +457,7 @@ body.resizing {
   background: var(--panel);
   border: 1px solid var(--border);
   position: relative;
-  margin-bottom: 22px;
+  margin-bottom: 40px;
 }
 
 .message.user {
@@ -500,12 +500,27 @@ body.resizing {
 
 .message-actions {
   position: absolute;
-  bottom: -32px;
+  bottom: -34px;
   right: 12px;
   display: flex;
   gap: 6px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  width: max-content;
   opacity: 0;
   transition: opacity 0.2s ease;
+}
+
+.message.assistant .message-actions {
+  left: 12px;
+  right: auto;
+  justify-content: flex-start;
+}
+
+.message.user .message-actions {
+  right: 12px;
+  left: auto;
+  justify-content: flex-end;
 }
 
 .message:hover .message-actions {
