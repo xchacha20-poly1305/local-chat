@@ -748,13 +748,10 @@ export class ChatViewModel {
     this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => {
       if (!prev.activeId) return prev;
-      let histories = prev.histories.filter((h) => h.id !== prev.activeId);
-      let activeId = histories[0]?.id ?? null;
-      if (!activeId) {
-        const next = this.createHistory(prev.currentLang);
-        histories = [next];
-        activeId = next.id;
-      }
+      const remaining = prev.histories.filter((h) => h.id !== prev.activeId);
+      const next = this.createHistory(prev.currentLang);
+      const histories = [next, ...remaining];
+      const activeId = next.id;
       this.saveHistories(histories);
       return { ...prev, histories, activeId, composerAttachments: [] };
     });
