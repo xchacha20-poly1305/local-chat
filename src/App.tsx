@@ -689,8 +689,7 @@ const App = () => {
                               title={chatViewModel.t("delete")}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                chatViewModel.setActive(history.id);
-                                chatViewModel.deleteActive();
+                                chatViewModel.deleteHistory(history.id);
                               }}
                             >
                               <Trash2 aria-hidden="true" />

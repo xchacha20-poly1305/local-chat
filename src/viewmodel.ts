@@ -303,8 +303,8 @@ export class ChatViewModel {
     const activeId = histories[0]?.id ?? null;
 
     this.state = {
-      histories: histories.length > 0 ? histories : [this.createHistory(currentLang)],
-      activeId: histories.length > 0 ? activeId : null,
+      histories,
+      activeId,
       streaming: false,
       streamingId: null,
       editingIndex: null,
@@ -322,10 +322,6 @@ export class ChatViewModel {
       previewAttachment: null,
       recording: false,
     };
-
-    if (this.state.histories.length === 1 && !activeId) {
-      this.state.activeId = this.state.histories[0].id;
-    }
   }
 
   subscribe = (listener: Listener) => {
@@ -757,6 +753,38 @@ export class ChatViewModel {
     }));
   };
 
+  deleteHistory = (id: string) => {
+    if (!id) return;
+    if (id === this.state.activeId) {
+      this.deleteActive();
+      return;
+    }
+
+    if (this.state.streamingId === id) {
+      this.cancelStream(id);
+    }
+    this.chatSessions.delete(id);
+
+    const target = this.state.histories.find((history) => history.id === id);
+    if (target) {
+      this.revokeAttachments(target.messages.flatMap((message) => message.attachments ?? []));
+    }
+
+    this.setState((prev) => {
+      const exists = prev.histories.some((history) => history.id === id);
+      if (!exists) return prev;
+      const histories = prev.histories.filter((history) => history.id !== id);
+      this.saveHistories(histories);
+      return {
+        ...prev,
+        histories,
+        renameTargetId: prev.renameTargetId === id ? null : prev.renameTargetId,
+        renameDraft: prev.renameTargetId === id ? "" : prev.renameDraft,
+        renameSource: prev.renameTargetId === id ? null : prev.renameSource,
+      };
+    });
+  };
+
   deleteActive = () => {
     if (this.state.recording) this.cancelRecording();
     const activeId = this.state.activeId;
@@ -774,13 +802,22 @@ export class ChatViewModel {
     }
     this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => {
-      if (!prev.activeId) return prev;
-      const remaining = prev.histories.filter((h) => h.id !== prev.activeId);
-      const next = this.createHistory(prev.currentLang);
-      const histories = [next, ...remaining];
-      const activeId = next.id;
-      this.saveHistories(histories);
-      return { ...prev, histories, activeId, composerAttachments: [], previewAttachment: null };
+      const deletedId = prev.activeId;
+      if (!deletedId) return prev;
+      const remaining = prev.histories.filter((history) => history.id !== deletedId);
+      this.saveHistories(remaining);
+      return {
+        ...prev,
+        histories: remaining,
+        activeId: null,
+        editingIndex: null,
+        editDraft: "",
+        renameTargetId: null,
+        renameDraft: "",
+        renameSource: null,
+        composerAttachments: [],
+        previewAttachment: null,
+      };
     });
   };
 
