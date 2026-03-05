@@ -300,7 +300,7 @@ export class ChatViewModel {
     const currentLang = this.initLanguage();
     const settings = this.loadSettings(currentLang);
     const histories = this.loadHistories();
-    const activeId = histories[0]?.id ?? null;
+    const activeId = null;
 
     this.state = {
       histories,
