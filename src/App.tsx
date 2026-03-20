@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { chatViewModel, I18N, renderMarkdown } from "./viewmodel";
 import type { Attachment, Message } from "./viewmodel";
+import CustomSelect from "./CustomSelect";
 
 type ChatMessageProps = {
   msg: Message;
@@ -128,8 +129,15 @@ const ChatMessage = memo(
     [lang]
   );
   const html = useMemo(() => renderMarkdown(msg.content || ""), [msg.content]);
+  const roleLabel =
+    msg.role === "user" ? chatViewModel.t("roleUser") : chatViewModel.t("roleAssistant");
+  const timeLabel = chatViewModel.formatTime(msg.ts);
   return (
     <div className={`message ${msg.role}`}>
+      <div className="message-meta">
+        <span className="message-role">{roleLabel}</span>
+        <span className="message-time">{timeLabel}</span>
+      </div>
       <div className="message-actions">
         {isEditing ? (
           <>
@@ -219,7 +227,7 @@ const ChatMessage = memo(
           autoFocus
         />
       ) : (
-        <div dangerouslySetInnerHTML={{ __html: html }}></div>
+        <div className="message-content" dangerouslySetInnerHTML={{ __html: html }}></div>
       )}
       {msg.attachments && msg.attachments.length > 0 ? (
         <div className="message-attachments">
@@ -361,6 +369,13 @@ const App = () => {
   }, [state.settings.theme]);
 
   useEffect(() => {
+    document.body.classList.add("page-chat");
+    return () => {
+      document.body.classList.remove("page-chat");
+    };
+  }, []);
+
+  useEffect(() => {
     const node = chatRef.current;
     if (!node) return;
     const threshold = 64;
@@ -399,6 +414,47 @@ const App = () => {
     return groups;
   }, [state.histories, state.currentLang]);
 
+  const uiLanguageOptions = useMemo(
+    () => [
+      {
+        value: "zh-CN",
+        label: "简体中文",
+      },
+      {
+        value: "en-US",
+        label: "English",
+      },
+    ],
+    []
+  );
+
+  const themeOptions = useMemo(
+    () => [
+      { value: "system", label: chatViewModel.t("themeSystem") },
+      { value: "light", label: chatViewModel.t("themeLight") },
+      { value: "dark", label: chatViewModel.t("themeDark") },
+    ],
+    [state.currentLang]
+  );
+
+  const sendShortcutOptions = useMemo(
+    () => [
+      { value: "ctrlEnter", label: "Ctrl/⌘ + Enter" },
+      { value: "shiftEnter", label: "Shift + Enter" },
+      { value: "enter", label: "Enter" },
+    ],
+    []
+  );
+
+  const exportFormatOptions = useMemo(
+    () => [
+      { value: "json", label: chatViewModel.t("exportFormatJson"), badge: "JSON" },
+      { value: "md", label: chatViewModel.t("exportFormatMd"), badge: "MD" },
+      { value: "txt", label: chatViewModel.t("exportFormatTxt"), badge: "TXT" },
+    ],
+    [state.currentLang]
+  );
+
   const openSettings = () => {
     setDraftSettings(state.settings);
     setImportStatus("");
@@ -432,6 +488,10 @@ const App = () => {
   const previewUrl = previewAttachment ? getAttachmentPreviewUrl(previewAttachment) : "";
   const closePreview = () => chatViewModel.closeAttachmentPreview();
   const isRecording = state.recording;
+  const activeMessageCount = active?.messages.length ?? 0;
+  const activeAttachmentCount =
+    active?.messages.reduce((count, message) => count + (message.attachments?.length ?? 0), 0) ?? 0;
+  const hasMessages = activeMessageCount > 0;
 
   const saveSettings = () => {
     chatViewModel.updateSettings({
@@ -581,126 +641,129 @@ const App = () => {
     <>
       <div className="app" style={appStyle}>
         <aside className="sidebar">
-          <div className="brand">
-            <div className="brand-title">{chatViewModel.t("brandTitle")}</div>
-            <div className="brand-sub">{chatViewModel.t("brandSub")}</div>
+          <div className="sidebar-panel brand-panel">
+            <div className="brand">
+              <div className="brand-title">{chatViewModel.t("brandTitle")}</div>
+              <div className="brand-sub">{chatViewModel.t("brandSub")}</div>
+            </div>
           </div>
-          <div className="lang-switch">
-            <label htmlFor="lang-select">{chatViewModel.t("language")}</label>
-            <select
+          <div className="sidebar-panel controls-panel">
+            <CustomSelect
               id="lang-select"
+              label={chatViewModel.t("language")}
               value={state.currentLang}
-              onChange={(event) => chatViewModel.setLanguage(event.target.value as keyof typeof I18N)}
-            >
-              {Object.keys(I18N).map((key) => (
-                <option key={key} value={key}>
-                  {key}
-                </option>
+              options={uiLanguageOptions}
+              onChange={(value) => chatViewModel.setLanguage(value as keyof typeof I18N)}
+            />
+            <div className="actions">
+              <button className="btn primary" onClick={() => chatViewModel.newChat()}>
+                {chatViewModel.t("newChat")}
+              </button>
+              <a className="btn" href="./translate/">
+                {chatViewModel.t("translate")}
+              </a>
+              <button className="btn" onClick={openSettings}>
+                {chatViewModel.t("settings")}
+              </button>
+            </div>
+          </div>
+          <div className="sidebar-panel history-panel">
+            <div className="sidebar-panel-header">
+              <span>{chatViewModel.t("historyCount")}</span>
+              <strong>{state.histories.length}</strong>
+            </div>
+            <div className="history">
+              {historyGroups.map((group) => (
+                <div key={group.date} className="history-group">
+                  <div className="history-date">{group.date}</div>
+                  <div className="history-divider"></div>
+                  {group.items.map((history) => {
+                    const isActive = history.id === state.activeId;
+                    const isRenaming =
+                      state.renameSource === "history" && state.renameTargetId === history.id;
+                    return (
+                      <div
+                        key={history.id}
+                        className={`history-item ${isActive ? "active" : ""}`}
+                        onClick={() => chatViewModel.setActive(history.id)}
+                      >
+                        <div className="history-title">
+                          {isRenaming ? (
+                            <input
+                              className="rename-input"
+                              value={state.renameDraft}
+                              onChange={(event) =>
+                                chatViewModel.updateRenameDraft(event.target.value)
+                              }
+                              onClick={(event) => event.stopPropagation()}
+                              {...renameInputHandlers}
+                              autoFocus
+                            />
+                          ) : (
+                            history.name
+                          )}
+                        </div>
+                        <div className="history-actions">
+                          {isRenaming ? (
+                            <>
+                              <button
+                                className="history-confirm"
+                                title={chatViewModel.t("confirm")}
+                                onMouseDown={() => {
+                                  suppressRenameBlurRef.current = true;
+                                }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  chatViewModel.commitRename();
+                                }}
+                              >
+                                <Check aria-hidden="true" />
+                              </button>
+                              <button
+                                className="history-cancel"
+                                title={chatViewModel.t("cancel")}
+                                onMouseDown={() => {
+                                  suppressRenameBlurRef.current = true;
+                                }}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  chatViewModel.cancelRename();
+                                }}
+                              >
+                                <X aria-hidden="true" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="history-rename"
+                                title={chatViewModel.t("rename")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  chatViewModel.beginRenameHistory(history.id);
+                                }}
+                              >
+                                <Pencil aria-hidden="true" />
+                              </button>
+                              <button
+                                className="history-delete"
+                                title={chatViewModel.t("delete")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  chatViewModel.deleteHistory(history.id);
+                                }}
+                              >
+                                <Trash2 aria-hidden="true" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ))}
-            </select>
-          </div>
-          <div className="actions">
-            <button className="btn primary" onClick={() => chatViewModel.newChat()}>
-              {chatViewModel.t("newChat")}
-            </button>
-            <a className="btn" href="./translate/">
-              {chatViewModel.t("translate")}
-            </a>
-            <button className="btn" onClick={openSettings}>
-              {chatViewModel.t("settings")}
-            </button>
-          </div>
-          <div className="history">
-            {historyGroups.map((group) => (
-              <div key={group.date} className="history-group">
-                <div className="history-date">{group.date}</div>
-                <div className="history-divider"></div>
-                {group.items.map((history) => {
-                  const isActive = history.id === state.activeId;
-                  const isRenaming =
-                    state.renameSource === "history" && state.renameTargetId === history.id;
-                  return (
-                    <div
-                      key={history.id}
-                      className={`history-item ${isActive ? "active" : ""}`}
-                      onClick={() => chatViewModel.setActive(history.id)}
-                    >
-                      <div className="history-title">
-                        {isRenaming ? (
-                          <input
-                            className="rename-input"
-                            value={state.renameDraft}
-                            onChange={(event) =>
-                              chatViewModel.updateRenameDraft(event.target.value)
-                            }
-                            onClick={(event) => event.stopPropagation()}
-                            {...renameInputHandlers}
-                            autoFocus
-                          />
-                        ) : (
-                          history.name
-                        )}
-                      </div>
-                      <div className="history-actions">
-                        {isRenaming ? (
-                          <>
-                            <button
-                              className="history-confirm"
-                              title={chatViewModel.t("confirm")}
-                              onMouseDown={() => {
-                                suppressRenameBlurRef.current = true;
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                chatViewModel.commitRename();
-                              }}
-                            >
-                              <Check aria-hidden="true" />
-                            </button>
-                            <button
-                              className="history-cancel"
-                              title={chatViewModel.t("cancel")}
-                              onMouseDown={() => {
-                                suppressRenameBlurRef.current = true;
-                              }}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                chatViewModel.cancelRename();
-                              }}
-                            >
-                              <X aria-hidden="true" />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              className="history-rename"
-                              title={chatViewModel.t("rename")}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                chatViewModel.beginRenameHistory(history.id);
-                              }}
-                            >
-                              <Pencil aria-hidden="true" />
-                            </button>
-                            <button
-                              className="history-delete"
-                              title={chatViewModel.t("delete")}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                chatViewModel.deleteHistory(history.id);
-                              }}
-                            >
-                              <Trash2 aria-hidden="true" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+            </div>
           </div>
         </aside>
 
@@ -713,214 +776,280 @@ const App = () => {
         ></div>
 
         <main className="main">
-          <header className="topbar">
-            <div className="title" id="current-title">
-              {state.renameSource === "topbar" && state.renameTargetId === active?.id ? (
-                <input
-                  className="rename-input"
-                  value={state.renameDraft}
-                  onChange={(event) => chatViewModel.updateRenameDraft(event.target.value)}
-                  {...renameInputHandlers}
-                  autoFocus
-                />
-              ) : (
-                active?.name || chatViewModel.t("defaultTitle")
-              )}
-            </div>
-            <div className="topbar-actions">
-              {state.renameSource === "topbar" && state.renameTargetId === active?.id ? (
-                <>
-                  <button
-                    className="icon-btn success"
-                    title={chatViewModel.t("confirm")}
-                    onMouseDown={() => {
-                      suppressRenameBlurRef.current = true;
-                    }}
-                    onClick={() => chatViewModel.commitRename()}
-                  >
-                    <Check aria-hidden="true" />
-                  </button>
-                  <button
-                    className="icon-btn danger"
-                    title={chatViewModel.t("cancel")}
-                    onMouseDown={() => {
-                      suppressRenameBlurRef.current = true;
-                    }}
-                    onClick={() => chatViewModel.cancelRename()}
-                  >
-                    <X aria-hidden="true" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    className="icon-btn"
-                    title={chatViewModel.t("rename")}
-                    onClick={() => chatViewModel.beginRenameTopbar()}
-                  >
-                    <Pencil aria-hidden="true" />
-                  </button>
-                  <button
-                    className="icon-btn danger"
-                    title={chatViewModel.t("delete")}
-                    onClick={() => chatViewModel.deleteActive()}
-                  >
-                    <Trash2 aria-hidden="true" />
-                  </button>
-                </>
-              )}
-            </div>
-          </header>
-
-          <section className="chat" id="chat" ref={chatRef}>
-            {active?.messages.map((msg, index) => {
-              const isEditing = state.editingIndex === index;
-              const showRegenerate =
-                !state.streaming && (msg.role === "assistant" || index === lastNonAssistantIndex);
-              return (
-                <ChatMessage
-                  key={`${msg.ts}-${index}`}
-                  msg={msg}
-                  index={index}
-                  isEditing={isEditing}
-                  editDraft={isEditing ? state.editDraft : ""}
-                  lang={state.currentLang}
-                  showRegenerate={showRegenerate}
-                  onCopy={(success) => {
-                    showToast(
-                      chatViewModel.t(success ? "toastCopied" : "toastCopyFailed"),
-                      success ? "success" : "error"
-                    );
-                  }}
-                />
-              );
-            })}
-          </section>
-
-          <footer className="composer">
-            <div className="composer-input">
-              <textarea
-                id="input"
-                ref={inputRef}
-                placeholder={chatViewModel.t("inputPlaceholder")}
-                rows={3}
-                onKeyDown={onInputKeyDown}
-                onPaste={onInputPaste}
-              ></textarea>
-              {state.composerAttachments.length > 0 ? (
-                <div className="composer-attachments">
-                  {state.composerAttachments.map((attachment) => (
-                    <AttachmentCard
-                      key={attachment.id}
-                      attachment={attachment}
-                      compact
-                      onRemove={() => chatViewModel.removeComposerAttachment(attachment.id)}
+          <div className="main-shell">
+            <header className="topbar">
+              <div className="title-wrap">
+                <div className="title" id="current-title">
+                  {state.renameSource === "topbar" && state.renameTargetId === active?.id ? (
+                    <input
+                      className="rename-input"
+                      value={state.renameDraft}
+                      onChange={(event) => chatViewModel.updateRenameDraft(event.target.value)}
+                      {...renameInputHandlers}
+                      autoFocus
                     />
-                  ))}
+                  ) : (
+                    active?.name || chatViewModel.t("defaultTitle")
+                  )}
                 </div>
-              ) : null}
-            </div>
-            <div className="composer-actions">
-              <div className="composer-tools">
-                <button
-                  className="icon-btn"
-                  title={chatViewModel.t("uploadFile")}
-                  aria-label={chatViewModel.t("uploadFile")}
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={state.streaming}
-                >
-                  <Paperclip aria-hidden="true" />
-                </button>
-                <button
-                  className="icon-btn"
-                  title={chatViewModel.t("attachPhoto")}
-                  aria-label={chatViewModel.t("attachPhoto")}
-                  onClick={() => photoInputRef.current?.click()}
-                  disabled={state.streaming}
-                >
-                  <Camera aria-hidden="true" />
-                </button>
-                <button
-                  className={`icon-btn ${isRecording ? "recording" : ""}`}
-                  title={chatViewModel.t(isRecording ? "recordStop" : "recordStart")}
-                  aria-label={chatViewModel.t(isRecording ? "recordStop" : "recordStart")}
-                  onClick={() =>
-                    isRecording ? chatViewModel.stopRecording() : void chatViewModel.startRecording()
-                  }
-                  disabled={state.streaming}
-                >
-                  {isRecording ? <Square aria-hidden="true" /> : <Circle aria-hidden="true" />}
-                </button>
-                <button
-                  className="icon-btn"
-                  title={chatViewModel.t("attachAudio")}
-                  aria-label={chatViewModel.t("attachAudio")}
-                  onClick={() => audioInputRef.current?.click()}
-                  disabled={state.streaming}
-                >
-                  <Mic aria-hidden="true" />
-                </button>
+                <div className="title-meta">
+                  {active ? (
+                    <>
+                      <span className="meta-pill">
+                        {chatViewModel.t("topbarMessages")} {activeMessageCount}
+                      </span>
+                      {activeAttachmentCount > 0 ? (
+                        <span className="meta-pill">
+                          {chatViewModel.t("topbarAttachments")} {activeAttachmentCount}
+                        </span>
+                      ) : null}
+                      <span className="meta-pill subtle">
+                        {chatViewModel.t("topbarUpdated")} {chatViewModel.formatTime(active.updatedAt)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="meta-pill subtle">
+                      {chatViewModel.t("historyCount")} {state.histories.length}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="composer-send">
-                {state.streaming ? (
-                  <button
-                    className="btn stop"
-                    onClick={handleStop}
-                    title={chatViewModel.t("stop")}
-                    aria-label={chatViewModel.t("stop")}
-                  >
-                    <Square aria-hidden="true" />
-                  </button>
+              <div className="topbar-actions">
+                {active
+                  ? state.renameSource === "topbar" && state.renameTargetId === active.id
+                    ? (
+                        <>
+                          <button
+                            className="icon-btn success"
+                            title={chatViewModel.t("confirm")}
+                            onMouseDown={() => {
+                              suppressRenameBlurRef.current = true;
+                            }}
+                            onClick={() => chatViewModel.commitRename()}
+                          >
+                            <Check aria-hidden="true" />
+                          </button>
+                          <button
+                            className="icon-btn danger"
+                            title={chatViewModel.t("cancel")}
+                            onMouseDown={() => {
+                              suppressRenameBlurRef.current = true;
+                            }}
+                            onClick={() => chatViewModel.cancelRename()}
+                          >
+                            <X aria-hidden="true" />
+                          </button>
+                        </>
+                      )
+                    : (
+                        <>
+                          <button
+                            className="icon-btn"
+                            title={chatViewModel.t("rename")}
+                            onClick={() => chatViewModel.beginRenameTopbar()}
+                          >
+                            <Pencil aria-hidden="true" />
+                          </button>
+                          <button
+                            className="icon-btn danger"
+                            title={chatViewModel.t("delete")}
+                            onClick={() => chatViewModel.deleteActive()}
+                          >
+                            <Trash2 aria-hidden="true" />
+                          </button>
+                        </>
+                      )
+                  : null}
+              </div>
+            </header>
+
+            <section className="chat" id="chat" ref={chatRef}>
+              <div className="chat-stage">
+                {hasMessages ? (
+                  <div className="chat-stack">
+                    {active?.messages.map((msg, index) => {
+                      const isEditing = state.editingIndex === index;
+                      const showRegenerate =
+                        !state.streaming &&
+                        (msg.role === "assistant" || index === lastNonAssistantIndex);
+                      return (
+                        <ChatMessage
+                          key={`${msg.ts}-${index}`}
+                          msg={msg}
+                          index={index}
+                          isEditing={isEditing}
+                          editDraft={isEditing ? state.editDraft : ""}
+                          lang={state.currentLang}
+                          showRegenerate={showRegenerate}
+                          onCopy={(success) => {
+                            showToast(
+                              chatViewModel.t(success ? "toastCopied" : "toastCopyFailed"),
+                              success ? "success" : "error"
+                            );
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
                 ) : (
-                  <button className="btn primary" onClick={() => void handleSend()}>
-                    {chatViewModel.t("send")}
-                  </button>
+                  <div className="chat-empty">
+                    <div className="chat-empty-badge">{chatViewModel.t("brandSub")}</div>
+                    <h2>{chatViewModel.t("emptyTitle")}</h2>
+                    <p>{chatViewModel.t("emptyBody")}</p>
+                    <div className="chat-empty-cues">
+                      <span>{chatViewModel.t("uploadFile")}</span>
+                      <span>{chatViewModel.t("attachPhoto")}</span>
+                      <span>{chatViewModel.t("attachAudio")}</span>
+                    </div>
+                    <div className="chat-empty-actions">
+                      {!active ? (
+                        <button className="btn primary" onClick={() => chatViewModel.newChat()}>
+                          {chatViewModel.t("newChat")}
+                        </button>
+                      ) : null}
+                      <a className="btn" href="./translate/">
+                        {chatViewModel.t("translate")}
+                      </a>
+                    </div>
+                    <div className="chat-empty-note">{chatViewModel.t("emptyPrivacy")}</div>
+                  </div>
                 )}
               </div>
-            </div>
-            <div className="status">{state.statusText}</div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="visually-hidden"
-              accept="text/*,image/*,audio/*"
-              multiple
-              onChange={(event) => {
-                const files = event.currentTarget.files;
-                if (files && files.length > 0) {
-                  void chatViewModel.addAttachmentsFromFiles(files);
-                }
-                event.currentTarget.value = "";
-              }}
-            />
-            <input
-              ref={photoInputRef}
-              type="file"
-              className="visually-hidden"
-              accept="image/*"
-              capture="environment"
-              onChange={(event) => {
-                const files = event.currentTarget.files;
-                if (files && files.length > 0) {
-                  void chatViewModel.addAttachmentsFromFiles(files);
-                }
-                event.currentTarget.value = "";
-              }}
-            />
-            <input
-              ref={audioInputRef}
-              type="file"
-              className="visually-hidden"
-              accept="audio/*"
-              onChange={(event) => {
-                const files = event.currentTarget.files;
-                if (files && files.length > 0) {
-                  void chatViewModel.addAttachmentsFromFiles(files);
-                }
-                event.currentTarget.value = "";
-              }}
-            />
-          </footer>
+            </section>
+
+            <footer className="composer">
+              <div className="composer-head">
+                <div className="composer-hint">{chatViewModel.t("composerHint")}</div>
+                {state.composerAttachments.length > 0 ? (
+                  <div className="composer-count">
+                    {chatViewModel.t("attachments")} {state.composerAttachments.length}
+                  </div>
+                ) : null}
+              </div>
+              <div className="composer-input">
+                <textarea
+                  id="input"
+                  ref={inputRef}
+                  placeholder={chatViewModel.t("inputPlaceholder")}
+                  rows={2}
+                  onKeyDown={onInputKeyDown}
+                  onPaste={onInputPaste}
+                ></textarea>
+                {state.composerAttachments.length > 0 ? (
+                  <div className="composer-attachments">
+                    {state.composerAttachments.map((attachment) => (
+                      <AttachmentCard
+                        key={attachment.id}
+                        attachment={attachment}
+                        compact
+                        onRemove={() => chatViewModel.removeComposerAttachment(attachment.id)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="composer-actions">
+                <div className="composer-tools">
+                  <button
+                    className="icon-btn"
+                    title={chatViewModel.t("uploadFile")}
+                    aria-label={chatViewModel.t("uploadFile")}
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={state.streaming}
+                  >
+                    <Paperclip aria-hidden="true" />
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title={chatViewModel.t("attachPhoto")}
+                    aria-label={chatViewModel.t("attachPhoto")}
+                    onClick={() => photoInputRef.current?.click()}
+                    disabled={state.streaming}
+                  >
+                    <Camera aria-hidden="true" />
+                  </button>
+                  <button
+                    className={`icon-btn ${isRecording ? "recording" : ""}`}
+                    title={chatViewModel.t(isRecording ? "recordStop" : "recordStart")}
+                    aria-label={chatViewModel.t(isRecording ? "recordStop" : "recordStart")}
+                    onClick={() =>
+                      isRecording ? chatViewModel.stopRecording() : void chatViewModel.startRecording()
+                    }
+                    disabled={state.streaming}
+                  >
+                    {isRecording ? <Square aria-hidden="true" /> : <Circle aria-hidden="true" />}
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title={chatViewModel.t("attachAudio")}
+                    aria-label={chatViewModel.t("attachAudio")}
+                    onClick={() => audioInputRef.current?.click()}
+                    disabled={state.streaming}
+                  >
+                    <Mic aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="composer-send">
+                  {state.streaming ? (
+                    <button
+                      className="btn stop"
+                      onClick={handleStop}
+                      title={chatViewModel.t("stop")}
+                      aria-label={chatViewModel.t("stop")}
+                    >
+                      <Square aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <button className="btn primary" onClick={() => void handleSend()}>
+                      {chatViewModel.t("send")}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="status">{state.statusText}</div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="visually-hidden"
+                accept="text/*,image/*,audio/*"
+                multiple
+                onChange={(event) => {
+                  const files = event.currentTarget.files;
+                  if (files && files.length > 0) {
+                    void chatViewModel.addAttachmentsFromFiles(files);
+                  }
+                  event.currentTarget.value = "";
+                }}
+              />
+              <input
+                ref={photoInputRef}
+                type="file"
+                className="visually-hidden"
+                accept="image/*"
+                capture="environment"
+                onChange={(event) => {
+                  const files = event.currentTarget.files;
+                  if (files && files.length > 0) {
+                    void chatViewModel.addAttachmentsFromFiles(files);
+                  }
+                  event.currentTarget.value = "";
+                }}
+              />
+              <input
+                ref={audioInputRef}
+                type="file"
+                className="visually-hidden"
+                accept="audio/*"
+                onChange={(event) => {
+                  const files = event.currentTarget.files;
+                  if (files && files.length > 0) {
+                    void chatViewModel.addAttachmentsFromFiles(files);
+                  }
+                  event.currentTarget.value = "";
+                }}
+              />
+            </footer>
+          </div>
         </main>
       </div>
 
@@ -1032,38 +1161,38 @@ const App = () => {
 
           <div className="settings-row">
             <label htmlFor="theme-mode">{chatViewModel.t("theme")}</label>
-            <select
+            <CustomSelect
               id="theme-mode"
+              label={chatViewModel.t("theme")}
               value={draftSettings.theme}
-              onChange={(event) =>
+              options={themeOptions}
+              showBadge={false}
+              showLabel={false}
+              onChange={(value) =>
                 setDraftSettings((prev) => ({
                   ...prev,
-                  theme: event.target.value as SettingsDraft["theme"],
+                  theme: value as SettingsDraft["theme"],
                 }))
               }
-            >
-              <option value="system">{chatViewModel.t("themeSystem")}</option>
-              <option value="light">{chatViewModel.t("themeLight")}</option>
-              <option value="dark">{chatViewModel.t("themeDark")}</option>
-            </select>
+            />
           </div>
 
           <div className="settings-row">
             <label htmlFor="send-shortcut">{chatViewModel.t("sendShortcut")}</label>
-            <select
+            <CustomSelect
               id="send-shortcut"
+              label={chatViewModel.t("sendShortcut")}
               value={draftSettings.sendShortcut}
-              onChange={(event) =>
+              options={sendShortcutOptions}
+              showBadge={false}
+              showLabel={false}
+              onChange={(value) =>
                 setDraftSettings((prev) => ({
                   ...prev,
-                  sendShortcut: event.target.value as SettingsDraft["sendShortcut"],
+                  sendShortcut: value as SettingsDraft["sendShortcut"],
                 }))
               }
-            >
-              <option value="ctrlEnter">Ctrl/⌘ + Enter</option>
-              <option value="shiftEnter">Shift + Enter</option>
-              <option value="enter">Enter</option>
-            </select>
+            />
           </div>
 
           <div className="settings-row">
@@ -1185,16 +1314,13 @@ const App = () => {
                   </div>
                   <div className="export-format">
                     <span>{chatViewModel.t("exportFormat")}</span>
-                    <select
+                    <CustomSelect
                       value={exportFormat}
-                      onChange={(event) =>
-                        setExportFormat(event.target.value as "json" | "md" | "txt")
-                      }
-                    >
-                      <option value="json">{chatViewModel.t("exportFormatJson")}</option>
-                      <option value="md">{chatViewModel.t("exportFormatMd")}</option>
-                      <option value="txt">{chatViewModel.t("exportFormatTxt")}</option>
-                    </select>
+                      label={chatViewModel.t("exportFormat")}
+                      options={exportFormatOptions}
+                      showLabel={false}
+                      onChange={(value) => setExportFormat(value as "json" | "md" | "txt")}
+                    />
                   </div>
                 </div>
                 <div className="export-list">

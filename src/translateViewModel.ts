@@ -286,6 +286,7 @@ export class TranslateViewModel {
     this.setState((prev) => ({
       ...prev,
       sourceLang: next,
+      statusText: "",
       detectedLang: next === AUTO_OPTION.code ? prev.detectedLang : null,
     }));
     if (next !== prevSource) {
@@ -300,6 +301,7 @@ export class TranslateViewModel {
     this.setState((prev) => ({
       ...prev,
       targetLang: value,
+      statusText: "",
     }));
     if (value !== prevTarget) {
       this.checkAvailability();
@@ -317,6 +319,7 @@ export class TranslateViewModel {
         ...prev,
         sourceLang: nextSource,
         targetLang: nextTarget,
+        statusText: "",
         detectedLang: null,
       };
     });
@@ -325,7 +328,7 @@ export class TranslateViewModel {
   };
 
   setInputText = (value: string) => {
-    this.setState((prev) => ({ ...prev, inputText: value }));
+    this.setState((prev) => ({ ...prev, inputText: value, statusText: "" }));
     this.scheduleTranslate();
   };
 

@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { ArrowLeft, ArrowLeftRight, Check, ChevronDown, Copy, Trash2 } from "lucide-react";
 import {
   translateViewModel,
-  TranslateI18N,
   type LanguageOption,
   type TranslateLang,
 } from "./translateViewModel";
 import { chatViewModel } from "./viewmodel";
+import CustomSelect from "./CustomSelect";
 
 type LanguageSelectProps = {
   label: string;
@@ -60,7 +60,7 @@ const LanguageSelect = ({
   const selectedLabel = translateViewModel.formatLanguageDisplay(value, lang);
 
   return (
-    <div className="language-select" ref={containerRef}>
+    <div className={`language-select ${open ? "open" : ""}`} ref={containerRef}>
       <label>{label}</label>
       <button
         className="language-select-trigger"
@@ -123,7 +123,11 @@ const TranslatePage = () => {
 
   useEffect(() => {
     translateViewModel.startAvailabilityCheck();
-    return () => translateViewModel.cancelInFlight();
+    document.body.classList.add("page-translate");
+    return () => {
+      document.body.classList.remove("page-translate");
+      translateViewModel.cancelInFlight();
+    };
   }, []);
 
   useEffect(() => {
@@ -139,6 +143,19 @@ const TranslatePage = () => {
   const targetOptions = useMemo(
     () => translateViewModel.getLanguageOptions(false),
     [state.currentLang]
+  );
+  const uiLanguageOptions = useMemo(
+    () => [
+      {
+        value: "zh-CN",
+        label: "简体中文",
+      },
+      {
+        value: "en-US",
+        label: "English",
+      },
+    ],
+    []
   );
 
   const detectedLabel = state.detectedLang
@@ -165,6 +182,14 @@ const TranslatePage = () => {
     chatViewModel.setLanguage(lang);
   };
 
+  const hasTranslateStatus = Boolean(
+    state.statusText ||
+      state.detectorStatusText ||
+      state.apiStatusText ||
+      state.apiAvailability === "downloadable" ||
+      (state.apiAvailability === "downloading" && state.downloadProgress !== null)
+  );
+
   return (
     <div className="translate-page">
       <header className="translate-header">
@@ -173,22 +198,13 @@ const TranslatePage = () => {
           <div className="translate-subtitle">{translateViewModel.t("subtitle")}</div>
         </div>
         <div className="translate-header-actions">
-          <div className="lang-switch">
-            <label htmlFor="translate-lang">{translateViewModel.t("language")}</label>
-            <select
-              id="translate-lang"
-              value={state.currentLang}
-              onChange={(event) =>
-                handleLanguageChange(event.target.value as keyof typeof TranslateI18N)
-              }
-            >
-              {(Object.keys(TranslateI18N) as TranslateLang[]).map((key) => (
-                <option key={key} value={key}>
-                  {key}
-                </option>
-              ))}
-            </select>
-          </div>
+          <CustomSelect
+            id="translate-lang"
+            label={translateViewModel.t("language")}
+            value={state.currentLang}
+            options={uiLanguageOptions}
+            onChange={(value) => handleLanguageChange(value as TranslateLang)}
+          />
           <a className="btn" href="../">
             <ArrowLeft aria-hidden="true" />
             <span>{translateViewModel.t("backToChat")}</span>
@@ -226,7 +242,7 @@ const TranslatePage = () => {
         />
       </section>
 
-      <section className="translate-panels">
+      <section className={`translate-panels ${hasTranslateStatus ? "has-status" : ""}`}>
         <div className="translate-panel">
           <div className="translate-panel-header">
             <span>{translateViewModel.t("sourceLanguage")}</span>
@@ -255,6 +271,45 @@ const TranslatePage = () => {
           ></textarea>
         </div>
 
+        {hasTranslateStatus ? (
+          <section className="translate-status translate-status-inline">
+            {state.statusText ? <div className="translate-status-row">{state.statusText}</div> : null}
+            {state.detectorStatusText ? (
+              <div className="translate-status-row">{state.detectorStatusText}</div>
+            ) : null}
+            {state.apiStatusText ? (
+              <div className="translate-status-row">{state.apiStatusText}</div>
+            ) : null}
+            {state.apiAvailability === "downloadable" ? (
+              <div className="translate-status-actions">
+                <button
+                  className="btn primary"
+                  onClick={() => void translateViewModel.startDownloadTranslator()}
+                >
+                  {translateViewModel.t("apiDownloadNow")}
+                </button>
+                <button className="btn" onClick={() => void translateViewModel.forceUseTranslator()}>
+                  {translateViewModel.t("apiForceUse")}
+                </button>
+              </div>
+            ) : null}
+            {state.apiAvailability === "downloading" && state.downloadProgress !== null ? (
+              <div className="translate-progress">
+                <div className="translate-progress-track">
+                  <div
+                    className="translate-progress-bar"
+                    style={{ width: `${Math.round(state.downloadProgress * 100)}%` }}
+                  ></div>
+                </div>
+                <div className="translate-progress-label">
+                  {translateViewModel.t("apiDownloadProgress")}:{" "}
+                  {Math.round(state.downloadProgress * 100)}%
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         <div className="translate-panel">
           <div className="translate-panel-header">
             <span>{translateViewModel.t("targetLanguage")}</span>
@@ -278,40 +333,6 @@ const TranslatePage = () => {
             )}
           </div>
         </div>
-      </section>
-
-      <section className="translate-status">
-        {state.statusText ? <div className="translate-status-row">{state.statusText}</div> : null}
-        {state.detectorStatusText ? (
-          <div className="translate-status-row">{state.detectorStatusText}</div>
-        ) : null}
-        {state.apiStatusText ? (
-          <div className="translate-status-row">{state.apiStatusText}</div>
-        ) : null}
-        {state.apiAvailability === "downloadable" ? (
-          <div className="translate-status-actions">
-            <button className="btn primary" onClick={() => void translateViewModel.startDownloadTranslator()}>
-              {translateViewModel.t("apiDownloadNow")}
-            </button>
-            <button className="btn" onClick={() => void translateViewModel.forceUseTranslator()}>
-              {translateViewModel.t("apiForceUse")}
-            </button>
-          </div>
-        ) : null}
-        {state.apiAvailability === "downloading" && state.downloadProgress !== null ? (
-          <div className="translate-progress">
-            <div className="translate-progress-track">
-              <div
-                className="translate-progress-bar"
-                style={{ width: `${Math.round(state.downloadProgress * 100)}%` }}
-              ></div>
-            </div>
-            <div className="translate-progress-label">
-              {translateViewModel.t("apiDownloadProgress")}:{" "}
-              {Math.round(state.downloadProgress * 100)}%
-            </div>
-          </div>
-        ) : null}
       </section>
     </div>
   );
