@@ -6,6 +6,7 @@ export default defineConfig({
   base: "./",
   plugins: [react()],
   build: {
+    target: "es2024",
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
