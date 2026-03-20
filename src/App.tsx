@@ -686,6 +686,12 @@ const App = () => {
   return (
     <>
       <div className="app" style={appStyle}>
+        <div className="app-ambient" aria-hidden="true">
+          <span className="ambient-orb ambient-orb-a"></span>
+          <span className="ambient-orb ambient-orb-b"></span>
+          <span className="ambient-orb ambient-orb-c"></span>
+          <span className="ambient-grid"></span>
+        </div>
         <aside className="sidebar">
           <div className="sidebar-panel brand-panel">
             <div className="brand">
