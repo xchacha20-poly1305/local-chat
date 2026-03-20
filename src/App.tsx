@@ -256,6 +256,18 @@ const SETTINGS_DIALOG_CLOSE_MS = 240;
 const App = () => {
   const state = useSyncExternalStore(chatViewModel.subscribe, chatViewModel.getSnapshot);
   const active = state.histories.find((h) => h.id === state.activeId) || null;
+  const promptContextLabel = useMemo(() => {
+    if (state.promptContextUsage === null || state.promptContextWindow === null) {
+      return "--";
+    }
+    const locale = I18N[state.currentLang]?.locale || "en-US";
+    const formatter = new Intl.NumberFormat(locale);
+    const percent =
+      state.promptContextWindow > 0
+        ? Math.round((state.promptContextUsage / state.promptContextWindow) * 100)
+        : 0;
+    return `${formatter.format(state.promptContextUsage)} / ${formatter.format(state.promptContextWindow)} (${percent}%)`;
+  }, [state.currentLang, state.promptContextUsage, state.promptContextWindow]);
   const lastNonAssistantIndex = (() => {
     if (!active) return -1;
     for (let i = active.messages.length - 1; i >= 0; i -= 1) {
@@ -830,7 +842,7 @@ const App = () => {
                   {active ? (
                     <>
                       <span className="meta-pill">
-                        {chatViewModel.t("topbarMessages")} {activeMessageCount}
+                        {chatViewModel.t("topbarContext")} {promptContextLabel}
                       </span>
                       {activeAttachmentCount > 0 ? (
                         <span className="meta-pill">

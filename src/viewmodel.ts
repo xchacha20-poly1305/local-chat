@@ -101,6 +101,7 @@ export const I18N = {
     historyCount: "对话",
     topbarUpdated: "更新于",
     topbarMessages: "消息",
+    topbarContext: "上下文",
     topbarAttachments: "附件",
     locale: "zh-CN",
   },
@@ -193,6 +194,7 @@ export const I18N = {
     historyCount: "Chats",
     topbarUpdated: "Updated",
     topbarMessages: "Messages",
+    topbarContext: "Context",
     topbarAttachments: "Attachments",
     locale: "en-US",
   },
@@ -254,6 +256,8 @@ export type State = {
   apiStatusText: string;
   apiAvailability: ApiAvailability;
   downloadProgress: number | null;
+  promptContextUsage: number | null;
+  promptContextWindow: number | null;
   settings: Settings;
   currentLang: keyof typeof I18N;
   renameTargetId: string | null;
@@ -330,6 +334,8 @@ export class ChatViewModel {
       apiStatusText: "",
       apiAvailability: "unknown",
       downloadProgress: null,
+      promptContextUsage: null,
+      promptContextWindow: null,
       settings,
       currentLang,
       renameTargetId: null,
@@ -355,6 +361,18 @@ export class ChatViewModel {
   private setState(updater: (prev: State) => State) {
     this.state = updater(this.state);
     this.emit();
+  }
+
+  private setPromptContextState(contextUsage: number | null, contextWindow: number | null) {
+    this.setState((prev) => {
+      if (
+        prev.promptContextUsage === contextUsage &&
+        prev.promptContextWindow === contextWindow
+      ) {
+        return prev;
+      }
+      return { ...prev, promptContextUsage: contextUsage, promptContextWindow: contextWindow };
+    });
   }
 
   t = (key: keyof (typeof I18N)["en-US"]) => {
@@ -415,8 +433,9 @@ export class ChatViewModel {
       return;
     }
 
+    let session: LanguageModel | null = null;
     try {
-      await this.createSession(this.textOnlyModalities());
+      session = await this.createSession(this.textOnlyModalities());
       this.setApiAvailability("ready");
       this.availabilityInFlight = false;
     } catch {
@@ -424,6 +443,8 @@ export class ChatViewModel {
       if (this.state.apiAvailability !== "downloading") {
         this.availabilityInFlight = false;
       }
+    } finally {
+      if (session) this.destroySession(session);
     }
   };
 
@@ -433,10 +454,11 @@ export class ChatViewModel {
     this.setApiAvailability("downloading");
     this.setState((prev) => ({ ...prev, downloadProgress: 0 }));
 
+    let session: LanguageModel | null = null;
     try {
       const lm = this.getPromptApi();
       const expected = this.buildExpectedOptions(this.textOnlyModalities());
-      await lm.create({
+      session = await lm.create({
         temperature: 0.7,
         topK: 40,
         ...expected,
@@ -455,6 +477,7 @@ export class ChatViewModel {
       await this.checkAvailability();
       this.setState((prev) => ({ ...prev, downloadProgress: null }));
     } finally {
+      if (session) this.destroySession(session);
       this.downloadInFlight = false;
     }
   };
@@ -716,7 +739,7 @@ export class ChatViewModel {
   setLanguage = (lang: keyof typeof I18N) => {
     if (!I18N[lang]) return;
     localStorage.setItem(LANG_KEY, lang);
-    this.chatSessions.clear();
+    this.clearChatSessions();
     this.setState((prev) => ({
       ...prev,
       currentLang: lang,
@@ -753,6 +776,7 @@ export class ChatViewModel {
         previewAttachment: null,
       };
     });
+    this.setPromptContextState(null, null);
   };
 
   setActive = (id: string) => {
@@ -769,6 +793,7 @@ export class ChatViewModel {
       composerAttachments: [],
       previewAttachment: null,
     }));
+    this.syncActiveSessionContext(id);
   };
 
   deleteHistory = (id: string) => {
@@ -781,7 +806,7 @@ export class ChatViewModel {
     if (this.state.streamingId === id) {
       this.cancelStream(id);
     }
-    this.chatSessions.delete(id);
+    this.deleteChatSession(id);
 
     const target = this.state.histories.find((history) => history.id === id);
     if (target) {
@@ -810,7 +835,7 @@ export class ChatViewModel {
       if (this.state.streamingId === activeId) {
         this.cancelStream(activeId);
       }
-      this.chatSessions.delete(activeId);
+      this.deleteChatSession(activeId);
     }
     const activeHistory = this.getActive();
     if (activeHistory) {
@@ -901,23 +926,19 @@ export class ChatViewModel {
   updateSettings = (next: Settings) => {
     const sanitized = this.sanitizeSettings(next);
     this.persistSettings(sanitized);
-    this.setState((prev) => {
-      if (prev.settings.systemPrompt !== sanitized.systemPrompt) {
-        this.chatSessions.clear();
-      }
-      return { ...prev, settings: sanitized };
-    });
+    if (this.state.settings.systemPrompt !== sanitized.systemPrompt) {
+      this.clearChatSessions();
+    }
+    this.setState((prev) => ({ ...prev, settings: sanitized }));
   };
 
   updateSettingsField = (patch: Partial<Settings>) => {
-    this.setState((prev) => {
-      const next = this.sanitizeSettings({ ...prev.settings, ...patch });
-      this.persistSettings(next);
-      if (prev.settings.systemPrompt !== next.systemPrompt) {
-        this.chatSessions.clear();
-      }
-      return { ...prev, settings: next };
-    });
+    const next = this.sanitizeSettings({ ...this.state.settings, ...patch });
+    this.persistSettings(next);
+    if (this.state.settings.systemPrompt !== next.systemPrompt) {
+      this.clearChatSessions();
+    }
+    this.setState((prev) => ({ ...prev, settings: next }));
   };
 
   setSidebarWidth = (width: number) => {
@@ -1605,6 +1626,77 @@ export class ChatViewModel {
     });
   }
 
+  private readPromptContext(session: LanguageModel) {
+    const legacySession = session as LanguageModel & {
+      inputUsage?: number;
+      inputQuota?: number;
+    };
+    // with old API compat
+    const contextUsage =
+      typeof session.contextUsage === "number" && Number.isFinite(session.contextUsage)
+        ? session.contextUsage
+        : typeof legacySession.inputUsage === "number" && Number.isFinite(legacySession.inputUsage)
+          ? legacySession.inputUsage
+        : null;
+    const contextWindow =
+      typeof session.contextWindow === "number" && Number.isFinite(session.contextWindow)
+        ? session.contextWindow
+        : typeof legacySession.inputQuota === "number" && Number.isFinite(legacySession.inputQuota)
+          ? legacySession.inputQuota
+        : null;
+    return { contextUsage, contextWindow };
+  }
+
+  private syncActiveSessionContext(historyId: string | null = this.state.activeId) {
+    if (!historyId) {
+      this.setPromptContextState(null, null);
+      return;
+    }
+    const entry = this.chatSessions.get(historyId);
+    if (!entry) {
+      this.setPromptContextState(null, null);
+      return;
+    }
+    const { contextUsage, contextWindow } = this.readPromptContext(entry.session);
+    this.setPromptContextState(contextUsage, contextWindow);
+  }
+
+  private updateActiveSessionContext(historyId: string, session: LanguageModel) {
+    if (this.state.activeId !== historyId) return;
+    const { contextUsage, contextWindow } = this.readPromptContext(session);
+    this.setPromptContextState(contextUsage, contextWindow);
+  }
+
+  private destroySession(session: LanguageModel) {
+    try {
+      session.destroy();
+    } catch {
+      // ignore cleanup failures from the browser API
+    }
+  }
+
+  private deleteChatSession(historyId: string) {
+    const entry = this.chatSessions.get(historyId);
+    if (!entry) return;
+    this.chatSessions.delete(historyId);
+    this.destroySession(entry.session);
+    if (this.state.activeId === historyId) {
+      this.setPromptContextState(null, null);
+    }
+  }
+
+  private clearChatSessions() {
+    if (this.chatSessions.size === 0) {
+      this.setPromptContextState(null, null);
+      return;
+    }
+    for (const { session } of this.chatSessions.values()) {
+      this.destroySession(session);
+    }
+    this.chatSessions.clear();
+    this.setPromptContextState(null, null);
+  }
+
   private hasModalities = (
     owned: Set<LanguageModelMessageType>,
     needed: Set<LanguageModelMessageType>
@@ -1620,13 +1712,18 @@ export class ChatViewModel {
     if (existing && this.hasModalities(existing.modalities, modalities)) {
       this.chatSessions.delete(historyId);
       this.chatSessions.set(historyId, existing);
+      this.updateActiveSessionContext(historyId, existing.session);
       return existing.session;
     }
     const session = await this.createSession(modalities);
     this.chatSessions.set(historyId, { session, modalities: new Set(modalities) });
+    if (existing) {
+      this.destroySession(existing.session);
+    }
+    this.updateActiveSessionContext(historyId, session);
     if (this.chatSessions.size > this.maxChatSessions) {
       const oldestKey = this.chatSessions.keys().next().value;
-      if (oldestKey) this.chatSessions.delete(oldestKey);
+      if (oldestKey) this.deleteChatSession(oldestKey);
     }
     return session;
   }
@@ -1648,7 +1745,7 @@ export class ChatViewModel {
       this.streamToken.cancelled = true;
     }
     this.streamToken = null;
-    this.chatSessions.delete(historyId);
+    this.deleteChatSession(historyId);
     this.setState((prev) => {
       if (prev.streamingId !== historyId) return prev;
       return { ...prev, streaming: false, streamingId: null, statusText: "" };
@@ -1685,25 +1782,30 @@ export class ChatViewModel {
     if (token.cancelled) return true;
     const session = await this.getChatSession(historyId, modalities);
     if (token.cancelled) return true;
-    if (session.promptStreaming) {
-      let output = "";
-      const stream = session.promptStreaming(prompt);
-      await this.readPromptStream(
-        stream,
-        (chunk) => {
-          if (token.cancelled) return;
-          output += chunk;
-          if (token.cancelled) return;
-          this.updateLastAssistant(output, historyId);
-        },
-        token
-      );
-      return token.cancelled;
-    } else {
+    this.updateActiveSessionContext(historyId, session);
+    try {
+      if (session.promptStreaming) {
+        let output = "";
+        const stream = session.promptStreaming(prompt);
+        await this.readPromptStream(
+          stream,
+          (chunk) => {
+            if (token.cancelled) return;
+            output += chunk;
+            if (token.cancelled) return;
+            this.updateLastAssistant(output, historyId);
+          },
+          token
+        );
+        return token.cancelled;
+      }
+
       const output = await session.prompt(prompt);
       if (token.cancelled) return true;
       this.updateLastAssistant(output, historyId);
       return false;
+    } finally {
+      this.updateActiveSessionContext(historyId, session);
     }
   }
 
@@ -1753,8 +1855,9 @@ export class ChatViewModel {
       return;
     }
 
+    let session: LanguageModel | null = null;
     try {
-      const session = await this.createSession(this.textOnlyModalities());
+      session = await this.createSession(this.textOnlyModalities());
       const prompt = this.applyTemplate(this.state.settings.titleTemplate, {
         date: this.templateDate(),
         language: this.state.currentLang,
@@ -1778,6 +1881,7 @@ export class ChatViewModel {
     } catch {
       // ignore auto-title failures
     } finally {
+      if (session) this.destroySession(session);
       this.markAutoTitleDone(history.id);
     }
   }
