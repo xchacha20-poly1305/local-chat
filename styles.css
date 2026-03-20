@@ -1383,11 +1383,32 @@ textarea::placeholder {
   background: transparent;
 }
 
+.settings-dialog[open] {
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 10px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
 .preview-dialog::backdrop,
 .settings-dialog::backdrop,
 .api-dialog::backdrop {
+  opacity: 1;
   background: rgba(4, 8, 7, 0.62);
   backdrop-filter: blur(8px);
+}
+
+.settings-dialog[open]:not(.is-closing)::backdrop {
+  animation: settings-backdrop-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.settings-dialog.is-closing::backdrop {
+  animation: settings-backdrop-out 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .preview-card {
@@ -1465,11 +1486,23 @@ textarea::placeholder {
 
 .settings-card {
   width: min(760px, 92vw);
+  max-height: calc(100dvh - 40px);
   padding: 24px;
   display: grid;
   gap: 18px;
-  overflow: visible;
+  overflow: auto;
+  overscroll-behavior: contain;
   isolation: isolate;
+  transform-origin: 50% 16%;
+  will-change: transform, opacity;
+}
+
+.settings-dialog[open]:not(.is-closing) .settings-card {
+  animation: settings-card-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.settings-dialog.is-closing .settings-card {
+  animation: settings-card-out 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 .settings-row {
@@ -1891,6 +1924,64 @@ textarea::placeholder {
   }
 }
 
+@keyframes settings-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes settings-backdrop-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.965);
+  }
+
+  65% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.003);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes settings-card-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(14px) scale(0.978);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-dialog[open]:not(.is-closing)::backdrop,
+  .settings-dialog.is-closing::backdrop,
+  .settings-dialog[open]:not(.is-closing) .settings-card,
+  .settings-dialog.is-closing .settings-card {
+    animation: none;
+  }
+}
+
 @media (max-width: 1200px) {
   .message {
     max-width: min(84%, 720px);
@@ -2036,6 +2127,7 @@ textarea::placeholder {
   .settings-card,
   .api-card {
     width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
     padding: 18px;
     border-radius: 24px;
   }

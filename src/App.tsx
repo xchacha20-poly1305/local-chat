@@ -249,6 +249,8 @@ type SettingsDraft = {
   sidebarWidth: number;
 };
 
+const SETTINGS_DIALOG_CLOSE_MS = 240;
+
 const App = () => {
   const state = useSyncExternalStore(chatViewModel.subscribe, chatViewModel.getSnapshot);
   const active = state.histories.find((h) => h.id === state.activeId) || null;
@@ -281,6 +283,7 @@ const App = () => {
   );
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const settingsCloseTimerRef = useRef<number | null>(null);
 
   const appStyle = useMemo(
     () => ({ "--sidebar-width": `${state.settings.sidebarWidth}px` } as CSSProperties),
@@ -461,15 +464,44 @@ const App = () => {
     setBackupStatus("");
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (dialog.showModal) dialog.showModal();
-    else dialog.setAttribute("open", "true");
+    if (settingsCloseTimerRef.current) {
+      window.clearTimeout(settingsCloseTimerRef.current);
+      settingsCloseTimerRef.current = null;
+    }
+    dialog.classList.remove("is-closing");
+    if (!dialog.open) {
+      if (dialog.showModal) dialog.showModal();
+      else dialog.setAttribute("open", "true");
+    }
   };
 
   const closeSettings = () => {
     const dialog = dialogRef.current;
-    if (!dialog) return;
-    dialog.close();
+    if (!dialog || !dialog.open) return;
+    if (settingsCloseTimerRef.current) {
+      window.clearTimeout(settingsCloseTimerRef.current);
+      settingsCloseTimerRef.current = null;
+    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      dialog.classList.remove("is-closing");
+      dialog.close();
+      return;
+    }
+    dialog.classList.add("is-closing");
+    settingsCloseTimerRef.current = window.setTimeout(() => {
+      dialog.classList.remove("is-closing");
+      if (dialog.open) dialog.close();
+      settingsCloseTimerRef.current = null;
+    }, SETTINGS_DIALOG_CLOSE_MS);
   };
+
+  useEffect(() => {
+    return () => {
+      if (settingsCloseTimerRef.current) {
+        window.clearTimeout(settingsCloseTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -1145,14 +1177,24 @@ const App = () => {
         </div>
       </dialog>
 
-      <dialog ref={dialogRef} className="settings-dialog">
+      <dialog
+        ref={dialogRef}
+        className="settings-dialog"
+        onCancel={(event) => {
+          event.preventDefault();
+          closeSettings();
+        }}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) closeSettings();
+        }}
+      >
         <form method="dialog" className="settings-card">
           <div className="settings-header">
             <div className="settings-title">{chatViewModel.t("settings")}</div>
             <button
               className="icon-btn"
               title={chatViewModel.t("close")}
-              value="cancel"
+              type="button"
               onClick={closeSettings}
             >
               <X aria-hidden="true" />
@@ -1261,7 +1303,7 @@ const App = () => {
           </div>
 
           <div className="settings-actions">
-            <button className="btn primary" value="default" onClick={saveSettings}>
+            <button className="btn primary" type="button" onClick={saveSettings}>
               {chatViewModel.t("save")}
             </button>
           </div>
