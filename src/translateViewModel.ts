@@ -318,7 +318,7 @@ export class TranslateViewModel {
       (prevState.targetLangMode === "auto" &&
         this.state.targetLang !== prevState.targetLang)
     ) {
-      this.checkAvailability();
+      void this.checkAvailability();
       this.scheduleTranslate();
     }
   };
@@ -334,7 +334,7 @@ export class TranslateViewModel {
       statusText: "",
     }));
     if (value !== prevTarget || prevMode !== "manual") {
-      this.checkAvailability();
+      void this.checkAvailability();
       this.scheduleTranslate();
     }
   };
@@ -354,7 +354,7 @@ export class TranslateViewModel {
         detectedLang: null,
       };
     });
-    this.checkAvailability();
+    void this.checkAvailability();
     this.scheduleTranslate();
   };
 
@@ -606,7 +606,7 @@ export class TranslateViewModel {
     const translator = await this.createTranslator(source, target);
     this.translatorCache.set(key, translator);
     if (this.translatorCache.size > MAX_TRANSLATORS) {
-      const oldestKey = this.translatorCache.keys().next().value as string | undefined;
+      const oldestKey = this.translatorCache.keys().next().value;
       if (oldestKey) {
         const oldest = this.translatorCache.get(oldestKey);
         oldest?.destroy?.();

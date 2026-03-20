@@ -315,7 +315,7 @@ export class ChatViewModel {
 
   constructor() {
     const currentLang = this.initLanguage();
-    const settings = this.loadSettings(currentLang);
+    const settings = this.loadSettings();
     const histories = this.loadHistories();
     const activeId = null;
 
@@ -541,7 +541,7 @@ export class ChatViewModel {
       return acc.replaceAll(`{${key}}`, vars[key] ?? "");
     }, template || "");
 
-  private defaultSettings = (lang: keyof typeof I18N): Settings => ({
+  private defaultSettings = (): Settings => ({
     sendShortcut: "ctrlEnter",
     theme: "system",
     systemPrompt: "",
@@ -551,19 +551,19 @@ export class ChatViewModel {
 
   getTitlePrompt = () => TITLE_PROMPT;
 
-  private loadSettings(lang: keyof typeof I18N) {
+  private loadSettings() {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return this.defaultSettings(lang);
+    if (!raw) return this.defaultSettings();
     try {
       const parsed = JSON.parse(raw) as Partial<Settings & { chatTemplate?: string }>;
       const next = {
-        ...this.defaultSettings(lang),
+        ...this.defaultSettings(),
         ...parsed,
         systemPrompt: parsed.systemPrompt ?? parsed.chatTemplate ?? "",
       };
       return this.sanitizeSettings(next);
     } catch {
-      return this.defaultSettings(lang);
+      return this.defaultSettings();
     }
   }
 
@@ -600,7 +600,7 @@ export class ChatViewModel {
       const input = isRecord(parsed.settings) ? parsed.settings : parsed;
       if (!isRecord(input)) return { ok: false, error: "Invalid settings format." };
       const next = {
-        ...this.defaultSettings(this.state.currentLang),
+        ...this.defaultSettings(),
         ...input,
       };
       this.updateSettings(next as Settings);
@@ -666,10 +666,11 @@ export class ChatViewModel {
       ...history,
       messages: history.messages.map((message) => ({
         ...message,
-        attachments: message.attachments?.map((attachment) => {
-          const { transientUrl, ...rest } = attachment;
-          return rest;
-        }),
+        attachments: message.attachments?.map((attachment) =>
+          Object.fromEntries(
+            Object.entries(attachment).filter(([key]) => key !== "transientUrl")
+          ) as Omit<Attachment, "transientUrl">
+        ),
       })),
     }));
   }
@@ -1624,7 +1625,7 @@ export class ChatViewModel {
     const session = await this.createSession(modalities);
     this.chatSessions.set(historyId, { session, modalities: new Set(modalities) });
     if (this.chatSessions.size > this.maxChatSessions) {
-      const oldestKey = this.chatSessions.keys().next().value as string | undefined;
+      const oldestKey = this.chatSessions.keys().next().value;
       if (oldestKey) this.chatSessions.delete(oldestKey);
     }
     return session;

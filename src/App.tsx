@@ -159,7 +159,7 @@ const ChatMessage = memo(
               <button
                 className="edit-resend"
                 title={chatViewModel.t("resend")}
-                onClick={() => chatViewModel.resendFrom(index)}
+                onClick={() => void chatViewModel.resendFrom(index)}
               >
                 <RotateCcw aria-hidden="true" />
               </button>
@@ -183,13 +183,15 @@ const ChatMessage = memo(
             <button
               className="copy-btn"
               title={labels.copy}
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(msg.content || "");
-                  onCopy(true);
-                } catch {
-                  onCopy(false);
-                }
+              onClick={() => {
+                void (async () => {
+                  try {
+                    await navigator.clipboard.writeText(msg.content || "");
+                    onCopy(true);
+                  } catch {
+                    onCopy(false);
+                  }
+                })();
               }}
             >
               <Copy aria-hidden="true" />
@@ -1269,7 +1271,11 @@ const App = () => {
               <button className="btn" type="button" onClick={handleBackupSettings}>
                 {chatViewModel.t("backupToFile")}
               </button>
-              <button className="btn" type="button" onClick={handleBackupToClipboard}>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void handleBackupToClipboard()}
+              >
                 {chatViewModel.t("backupToClipboard")}
               </button>
             </div>
@@ -1285,7 +1291,11 @@ const App = () => {
               >
                 {chatViewModel.t("importFromFile")}
               </button>
-              <button className="btn" type="button" onClick={handleImportFromClipboard}>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void handleImportFromClipboard()}
+              >
                 {chatViewModel.t("importFromClipboard")}
               </button>
             </div>

@@ -314,7 +314,11 @@ const TranslatePage = () => {
           <div className="translate-panel-header">
             <span>{translateViewModel.t("targetLanguage")}</span>
             <div className="translate-output-actions">
-              <button className="btn" onClick={handleCopy} disabled={!state.outputText}>
+              <button
+                className="btn"
+                onClick={() => void handleCopy()}
+                disabled={!state.outputText}
+              >
                 <Copy aria-hidden="true" />
                 <span>{translateViewModel.t("copy")}</span>
               </button>
