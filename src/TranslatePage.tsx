@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowLeft, ArrowLeftRight, Check, ChevronDown, Copy, Trash2 } from "lucide-react";
-import { navigate } from "./navigation";
 import {
   translateViewModel,
   TranslateI18N,
@@ -190,10 +189,10 @@ const TranslatePage = () => {
               ))}
             </select>
           </div>
-          <button className="btn" onClick={() => navigate("./")}>
+          <a className="btn" href="../">
             <ArrowLeft aria-hidden="true" />
             <span>{translateViewModel.t("backToChat")}</span>
-          </button>
+          </a>
         </div>
       </header>
 

@@ -19,7 +19,6 @@ import {
   Mic,
   X,
 } from "lucide-react";
-import { navigate } from "./navigation";
 import { chatViewModel, I18N, renderMarkdown } from "./viewmodel";
 import type { Attachment, Message } from "./viewmodel";
 
@@ -604,9 +603,9 @@ const App = () => {
             <button className="btn primary" onClick={() => chatViewModel.newChat()}>
               {chatViewModel.t("newChat")}
             </button>
-            <button className="btn" onClick={() => navigate("./translate")}>
+            <a className="btn" href="./translate/">
               {chatViewModel.t("translate")}
-            </button>
+            </a>
             <button className="btn" onClick={openSettings}>
               {chatViewModel.t("settings")}
             </button>

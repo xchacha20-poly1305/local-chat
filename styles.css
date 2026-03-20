@@ -196,6 +196,9 @@ body.resizing {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--panel-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -203,6 +206,7 @@ body.resizing {
   border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
+  text-decoration: none;
   transition: transform 0.1s ease, border 0.2s ease;
 }
 
