@@ -1525,7 +1525,7 @@ export class ChatViewModel {
 
   private getPromptApi() {
     const lm = this.getPromptApiMaybe();
-    if (!lm) throw new Error("未检测到 Chrome Prompt API");
+    if (!lm) throw new Error("Chrome Prompt API not detected");
     return lm;
   }
 
@@ -1613,7 +1613,7 @@ export class ChatViewModel {
     const expected = this.buildExpectedOptions(modalities);
     const availability =
       typeof lm.availability === "function" ? await lm.availability(expected) : "available";
-    if (availability === "unavailable") throw new Error("Prompt API 不可用");
+    if (availability === "unavailable") throw new Error("Prompt API unavailable");
     const systemPrompt = this.buildSystemPrompt();
     const initialPrompts: [LanguageModelSystemMessage] | undefined = systemPrompt
       ? [{ role: "system", content: systemPrompt }]
