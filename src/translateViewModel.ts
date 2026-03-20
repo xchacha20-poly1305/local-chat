@@ -167,12 +167,14 @@ const LANGUAGE_MAP = new Map(ALL_LANGUAGE_OPTIONS.map((option) => [option.code, 
 type Listener = () => void;
 
 type ApiAvailability = Availability | "unknown" | "chromeOnly";
+type TargetLangMode = "auto" | "manual";
 
 export type TranslateState = {
   inputText: string;
   outputText: string;
   sourceLang: string;
   targetLang: string;
+  targetLangMode: TargetLangMode;
   detectedLang: string | null;
   translating: boolean;
   statusText: string;
@@ -205,6 +207,7 @@ export class TranslateViewModel {
       outputText: "",
       sourceLang,
       targetLang,
+      targetLangMode: "auto",
       detectedLang: null,
       translating: false,
       statusText: "",
@@ -254,13 +257,26 @@ export class TranslateViewModel {
 
   setLanguage = (lang: TranslateLang) => {
     if (!TranslateI18N[lang]) return;
+    const prevState = this.state;
+    const nextTarget =
+      prevState.targetLangMode === "auto"
+        ? this.resolveAutoTargetLang(
+            this.getEffectiveSourceLang(prevState, prevState.detectedLang),
+            lang
+          )
+        : prevState.targetLang;
     localStorage.setItem(LANG_KEY, lang);
     this.setState((prev) => ({
       ...prev,
       currentLang: lang,
+      targetLang: nextTarget,
       apiStatusText: this.formatApiStatusText(prev.apiAvailability, lang),
       detectorStatusText: this.formatDetectorStatusText(prev.detectorAvailability, lang),
     }));
+    if (nextTarget !== prevState.targetLang) {
+      void this.checkAvailability();
+      this.scheduleTranslate();
+    }
   };
 
   getLanguageOptions = (includeAuto: boolean) =>
@@ -283,13 +299,25 @@ export class TranslateViewModel {
     if (!value) return;
     const next = value === AUTO_OPTION.code ? AUTO_OPTION.code : value;
     const prevSource = this.state.sourceLang;
+    const prevState = this.state;
     this.setState((prev) => ({
       ...prev,
       sourceLang: next,
+      targetLang:
+        prev.targetLangMode === "auto"
+          ? this.resolveAutoTargetLang(
+              next === AUTO_OPTION.code ? prev.detectedLang : next,
+              prev.currentLang
+            )
+          : prev.targetLang,
       statusText: "",
       detectedLang: next === AUTO_OPTION.code ? prev.detectedLang : null,
     }));
-    if (next !== prevSource) {
+    if (
+      next !== prevSource ||
+      (prevState.targetLangMode === "auto" &&
+        this.state.targetLang !== prevState.targetLang)
+    ) {
       this.checkAvailability();
       this.scheduleTranslate();
     }
@@ -298,12 +326,14 @@ export class TranslateViewModel {
   setTargetLang = (value: string) => {
     if (!value || value === AUTO_OPTION.code) return;
     const prevTarget = this.state.targetLang;
+    const prevMode = this.state.targetLangMode;
     this.setState((prev) => ({
       ...prev,
       targetLang: value,
+      targetLangMode: "manual",
       statusText: "",
     }));
-    if (value !== prevTarget) {
+    if (value !== prevTarget || prevMode !== "manual") {
       this.checkAvailability();
       this.scheduleTranslate();
     }
@@ -319,6 +349,7 @@ export class TranslateViewModel {
         ...prev,
         sourceLang: nextSource,
         targetLang: nextTarget,
+        targetLangMode: "manual",
         statusText: "",
         detectedLang: null,
       };
@@ -337,6 +368,10 @@ export class TranslateViewModel {
     this.setState((prev) => ({
       ...prev,
       outputText: "",
+      targetLang:
+        prev.targetLangMode === "auto"
+          ? this.resolveAutoTargetLang(this.getEffectiveSourceLang(prev, null), prev.currentLang)
+          : prev.targetLang,
       statusText: "",
       translating: false,
       detectedLang: null,
@@ -349,6 +384,10 @@ export class TranslateViewModel {
       ...prev,
       inputText: "",
       outputText: "",
+      targetLang:
+        prev.targetLangMode === "auto"
+          ? this.resolveAutoTargetLang(this.getEffectiveSourceLang(prev, null), prev.currentLang)
+          : prev.targetLang,
       statusText: "",
       translating: false,
       detectedLang: null,
@@ -577,6 +616,68 @@ export class TranslateViewModel {
     return translator;
   }
 
+  private getLanguageBase(code: string) {
+    const base = code.trim().toLowerCase().split("-")[0] || "";
+    if (base === "cmn" || base === "yue" || base === "wuu") return "zh";
+    if (base === "iw") return "he";
+    if (base === "in") return "id";
+    if (base === "ji") return "yi";
+    return base;
+  }
+
+  private getLanguageScript(code: string) {
+    const parts = code
+      .trim()
+      .toLowerCase()
+      .split("-")
+      .filter(Boolean);
+    const explicitScript = parts.find((part, index) => index > 0 && part.length === 4) || null;
+    if (explicitScript) return explicitScript;
+    if (this.getLanguageBase(code) !== "zh") return null;
+    const region = parts.find((part, index) => index > 0 && part.length === 2) || null;
+    if (region === "cn" || region === "sg" || region === "my") return "hans";
+    if (region === "tw" || region === "hk" || region === "mo") return "hant";
+    return null;
+  }
+
+  private isSameLanguage(codeA: string, codeB: string) {
+    const baseA = this.getLanguageBase(codeA);
+    const baseB = this.getLanguageBase(codeB);
+    if (!baseA || !baseB || baseA !== baseB) return false;
+    const scriptA = this.getLanguageScript(codeA);
+    const scriptB = this.getLanguageScript(codeB);
+    if (scriptA && scriptB) return scriptA === scriptB;
+    return true;
+  }
+
+  private getCounterpartTarget(lang: TranslateLang) {
+    return lang === "zh-CN" ? "en" : "zh-Hans";
+  }
+
+  private getEffectiveSourceLang(
+    state: Pick<TranslateState, "sourceLang" | "detectedLang">,
+    detectedOverride: string | null
+  ) {
+    if (state.sourceLang === AUTO_OPTION.code) return detectedOverride ?? null;
+    return state.sourceLang;
+  }
+
+  private resolveAutoTargetLang(source: string | null, lang: TranslateLang) {
+    const defaultTarget = this.defaultTargetForLang(lang);
+    if (!source) return defaultTarget;
+    const candidates = [defaultTarget];
+    if (this.getLanguageBase(source) === "zh" && this.getLanguageScript(source) === "hant") {
+      candidates.push("zh-Hans");
+    }
+    candidates.push(this.getCounterpartTarget(lang));
+
+    const next = candidates.find((candidate, index) => {
+      if (candidates.indexOf(candidate) !== index) return false;
+      return !this.isSameLanguage(source, candidate);
+    });
+    return next || defaultTarget;
+  }
+
   private async translateNow() {
     const input = this.state.inputText.trim();
     if (!input) {
@@ -599,6 +700,9 @@ export class TranslateViewModel {
 
     try {
       let sourceLang = this.state.sourceLang;
+      const wasAutoSource = sourceLang === AUTO_OPTION.code;
+      let detectedLang = this.state.detectedLang;
+      let targetLang = this.state.targetLang;
       if (sourceLang === AUTO_OPTION.code) {
         if (this.state.detectorAvailability === "unavailable" || this.state.detectorAvailability === "chromeOnly") {
           throw new Error(this.t("detectorUnavailable"));
@@ -607,16 +711,38 @@ export class TranslateViewModel {
         if (!this.isTokenActive(token)) return;
         if (!detected) throw new Error(this.t("detectorUnavailable"));
         sourceLang = detected;
+        detectedLang = detected;
+      }
+
+      if (this.state.targetLangMode === "auto") {
+        const prevTargetLang = targetLang;
+        const nextAutoTarget = this.resolveAutoTargetLang(
+          this.getEffectiveSourceLang(this.state, detectedLang),
+          this.state.currentLang
+        );
+        if (nextAutoTarget !== targetLang) {
+          targetLang = nextAutoTarget;
+        }
         this.setState((prev) => ({
           ...prev,
-          detectedLang: detected,
+          detectedLang,
+          targetLang,
+          statusText: this.t("statusTranslating"),
+        }));
+        if (targetLang !== prevTargetLang) {
+          void this.checkAvailability();
+        }
+      } else if (wasAutoSource) {
+        this.setState((prev) => ({
+          ...prev,
+          detectedLang,
           statusText: this.t("statusTranslating"),
         }));
       }
 
       if (!this.isTokenActive(token)) return;
 
-      if (sourceLang === this.state.targetLang) {
+      if (this.isSameLanguage(sourceLang, targetLang)) {
         this.setState((prev) => ({
           ...prev,
           outputText: input,
@@ -626,7 +752,7 @@ export class TranslateViewModel {
         return;
       }
 
-      const translator = await this.getTranslator(sourceLang, this.state.targetLang);
+      const translator = await this.getTranslator(sourceLang, targetLang);
       if (!this.isTokenActive(token)) return;
       if (translator.translateStreaming) {
         const stream = translator.translateStreaming(input, { signal: abortController.signal });
