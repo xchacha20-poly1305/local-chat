@@ -47,52 +47,52 @@ const CustomSelect = ({
   );
 
   return (
-    <div className={`ui-language-select ${open ? "open" : ""}`} ref={rootRef}>
+    <div className={`custom-select ${open ? "open" : ""}`} ref={rootRef}>
       {showLabel ? <label htmlFor={id}>{label}</label> : null}
       <button
         id={id}
-        className="ui-language-trigger"
+        className="custom-select-trigger"
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <span className="ui-language-trigger-copy">
-          <span className="ui-language-trigger-title">{selected?.label}</span>
+        <span className="custom-select-copy">
+          <span className="custom-select-title">{selected?.label}</span>
           {selected?.caption ? (
-            <span className="ui-language-trigger-caption">{selected.caption}</span>
+            <span className="custom-select-caption">{selected.caption}</span>
           ) : null}
         </span>
-        <span className="ui-language-trigger-meta">
+        <span className="custom-select-meta">
           {showBadge ? (
-            <span className="ui-language-code">{selected?.badge ?? selected?.value}</span>
+            <span className="custom-select-badge">{selected?.badge ?? selected?.value}</span>
           ) : null}
           <ChevronDown aria-hidden="true" />
         </span>
       </button>
       {open ? (
-        <div className="ui-language-popover">
-          <div className="ui-language-list" role="listbox" aria-label={label}>
+        <div className="custom-select-popover">
+          <div className="custom-select-list" role="listbox" aria-label={label}>
             {options.map((option) => {
               const isSelected = option.value === value;
               return (
                 <button
                   key={option.value}
                   type="button"
-                  className={`ui-language-option ${isSelected ? "selected" : ""}`}
+                  className={`custom-select-option ${isSelected ? "selected" : ""}`}
                   onClick={() => {
                     onChange(option.value);
                     setOpen(false);
                   }}
                 >
-                  <span className="ui-language-option-copy">
-                    <span className="ui-language-option-title">{option.label}</span>
+                  <span className="custom-select-copy">
+                    <span className="custom-select-title">{option.label}</span>
                     {option.caption ? (
-                      <span className="ui-language-option-caption">{option.caption}</span>
+                      <span className="custom-select-caption">{option.caption}</span>
                     ) : null}
                   </span>
-                  <span className="ui-language-option-meta">
+                  <span className="custom-select-meta">
                     {showBadge ? (
-                      <span className="ui-language-code">{option.badge ?? option.value}</span>
+                      <span className="custom-select-badge">{option.badge ?? option.value}</span>
                     ) : null}
                     {isSelected ? <Check aria-hidden="true" /> : null}
                   </span>

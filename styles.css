@@ -481,7 +481,7 @@ video {
 }
 
 .lang-switch label,
-.ui-language-select label,
+.custom-select label,
 .settings-row label,
 .language-select label {
   color: var(--muted);
@@ -496,82 +496,80 @@ video {
   appearance: none;
 }
 
-.ui-language-select {
+.custom-select {
   position: relative;
   display: grid;
   gap: 8px;
   z-index: 2;
 }
 
-.ui-language-select.open {
+.custom-select.open {
   z-index: 90;
 }
 
-.ui-language-trigger,
-.ui-language-option {
+.custom-select-trigger,
+.custom-select-option {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-stroke);
   color: var(--text);
   text-align: left;
   cursor: pointer;
 }
 
-.ui-language-trigger {
+.custom-select-trigger {
   min-height: 62px;
   padding: 14px 16px;
   border-radius: 24px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02)),
-    var(--glass-tint-soft);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 48%),
+    color-mix(in srgb, var(--glass-tint) 72%, var(--glass-tint-strong));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 22px rgba(0, 6, 5, 0.14),
     var(--shadow-sm);
-  backdrop-filter: blur(var(--glass-blur-sm)) saturate(1.12);
-  -webkit-backdrop-filter: blur(var(--glass-blur-sm)) saturate(1.12);
+  backdrop-filter: blur(var(--glass-blur-md)) saturate(1.18);
+  -webkit-backdrop-filter: blur(var(--glass-blur-md)) saturate(1.18);
 }
 
-.ui-language-select.open .ui-language-trigger {
+.custom-select.open .custom-select-trigger {
   border-color: var(--user-border);
   box-shadow:
     0 0 0 4px rgba(127, 177, 139, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.ui-language-trigger-copy,
-.ui-language-option-copy {
+.custom-select-copy {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
-.ui-language-trigger-title,
-.ui-language-option-title {
+.custom-select-title {
   color: var(--dialog-title);
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
 
-.ui-language-trigger-caption,
-.ui-language-option-caption {
+.custom-select-caption {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
 }
 
-.ui-language-trigger-meta,
-.ui-language-option-meta {
+.custom-select-meta {
   display: flex;
   align-items: center;
   gap: 10px;
   flex: none;
 }
 
-.ui-language-popover {
+.custom-select-popover {
   position: absolute;
   top: calc(100% + 10px);
   left: 0;
@@ -581,16 +579,19 @@ video {
   border: 1px solid var(--glass-stroke);
   border-radius: 26px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 48%),
     radial-gradient(circle at top right, rgba(184, 226, 198, 0.12), transparent 32%),
-    var(--glass-tint);
-  backdrop-filter: blur(var(--glass-blur-lg)) saturate(1.22);
-  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(1.22);
-  box-shadow: var(--shadow-lg);
+    color-mix(in srgb, var(--glass-tint) 62%, var(--glass-tint-strong));
+  backdrop-filter: blur(calc(var(--glass-blur-lg) + 4px)) saturate(1.24);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur-lg) + 4px)) saturate(1.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    var(--shadow-lg);
   overflow: hidden;
 }
 
-.ui-language-popover::before {
+.custom-select-popover::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -600,37 +601,47 @@ video {
   pointer-events: none;
 }
 
-.ui-language-list {
+.custom-select-list {
   position: relative;
   z-index: 1;
   display: grid;
   gap: 8px;
 }
 
-.ui-language-option {
+.custom-select-option {
   padding: 14px 16px;
   border-radius: 20px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent),
-    rgba(255, 255, 255, 0.04);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent),
+    color-mix(in srgb, var(--glass-tint-soft) 52%, var(--glass-tint-strong));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 16px rgba(0, 6, 5, 0.08);
+  backdrop-filter: blur(var(--glass-blur-sm)) saturate(1.14);
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm)) saturate(1.14);
 }
 
-.ui-language-option.selected {
+.custom-select-option.selected {
   border-color: var(--user-border);
-  background: rgba(127, 177, 139, 0.12);
-  box-shadow: 0 14px 26px rgba(9, 20, 14, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent),
+    rgba(127, 177, 139, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 14px 26px rgba(9, 20, 14, 0.12);
 }
 
-.ui-language-code {
+.custom-select-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 28px;
   padding: 4px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--glass-stroke);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent),
+    rgba(255, 255, 255, 0.08);
   color: var(--muted);
   font-size: 12px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -646,8 +657,8 @@ video {
 .history-actions button,
 .message-actions button,
 .attachment-remove,
-.ui-language-trigger,
-.ui-language-option,
+.custom-select-trigger,
+.custom-select-option,
 .language-select-trigger,
 .language-select-option {
   transition:
@@ -690,8 +701,8 @@ video {
 .history-actions button:hover,
 .message-actions button:hover,
 .attachment-remove:hover,
-.ui-language-trigger:hover,
-.ui-language-option:hover,
+.custom-select-trigger:hover,
+.custom-select-option:hover,
 .language-select-trigger:hover,
 .language-select-option:hover {
   transform: translateY(-2px);
@@ -702,8 +713,8 @@ video {
 .history-actions button:active,
 .message-actions button:active,
 .attachment-remove:active,
-.ui-language-trigger:active,
-.ui-language-option:active,
+.custom-select-trigger:active,
+.custom-select-option:active,
 .language-select-trigger:active,
 .language-select-option:active {
   transform: translateY(1px) scale(0.985);
@@ -745,8 +756,8 @@ video {
 .history-actions button:disabled,
 .message-actions button:disabled,
 .attachment-remove:disabled,
-.ui-language-trigger:disabled,
-.ui-language-option:disabled {
+.custom-select-trigger:disabled,
+.custom-select-option:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
@@ -758,8 +769,8 @@ video {
 .history-actions svg,
 .message-actions svg,
 .attachment-remove svg,
-.ui-language-trigger svg,
-.ui-language-option svg,
+.custom-select-trigger svg,
+.custom-select-option svg,
 .translate-page .btn svg,
 .language-select-option svg,
 .language-select-trigger svg {
@@ -1780,7 +1791,7 @@ textarea::placeholder {
   z-index: 40;
 }
 
-.settings-row > .ui-language-select {
+.settings-row > .custom-select {
   z-index: 3;
 }
 
@@ -1806,7 +1817,7 @@ textarea::placeholder {
   font-size: 12px;
 }
 
-.export-format .ui-language-select {
+.export-format .custom-select {
   min-width: 180px;
 }
 
@@ -2200,7 +2211,7 @@ textarea::placeholder {
   .preview-card,
   .api-card,
   .toast,
-  .ui-language-popover,
+  .custom-select-popover,
   .language-select-popover,
   .translate-header,
   .translate-controls,
