@@ -1,5 +1,3 @@
-import { marked } from "marked";
-
 const STORAGE_KEY = "local-chat-histories";
 const LANG_KEY = "local-chat-language";
 const SETTINGS_KEY = "local-chat-settings";
@@ -282,17 +280,6 @@ type ApiAvailability =
   | "downloadable"
   | "downloading"
   | "ready";
-
-const formatterOptions = {
-  gfm: true,
-  breaks: true,
-} as const;
-
-marked.setOptions(formatterOptions);
-
-export const renderMarkdown = (md: string) => {
-  return marked.parse(md);
-};
 
 export class ChatViewModel {
   private listeners = new Set<Listener>();

@@ -19,9 +19,14 @@ import {
   Mic,
   X,
 } from "lucide-react";
-import { chatViewModel, I18N, renderMarkdown } from "./viewmodel";
+import { code } from "@streamdown/code";
+import { Streamdown } from "streamdown";
+import { chatViewModel, I18N } from "./viewmodel";
 import type { Attachment, Message } from "./viewmodel";
 import CustomSelect from "./CustomSelect";
+
+const markdownPlugins = { code } as const;
+const markdownCodeThemes: ["github-light", "github-dark"] = ["github-light", "github-dark"];
 
 type ChatMessageProps = {
   msg: Message;
@@ -128,7 +133,6 @@ const ChatMessage = memo(
       }),
       [lang]
     );
-    const html = useMemo(() => renderMarkdown(msg.content || ""), [msg.content]);
     const roleLabel =
       msg.role === "user" ? chatViewModel.t("roleUser") : chatViewModel.t("roleAssistant");
     const timeLabel = chatViewModel.formatTime(msg.ts);
@@ -155,7 +159,14 @@ const ChatMessage = memo(
               autoFocus
             />
           ) : (
-            <div className="message-content" dangerouslySetInnerHTML={{ __html: html }}></div>
+            <Streamdown
+              className="message-content"
+              lineNumbers={false}
+              plugins={markdownPlugins}
+              shikiTheme={markdownCodeThemes}
+            >
+              {msg.content || ""}
+            </Streamdown>
           )}
           {msg.attachments && msg.attachments.length > 0 ? (
             <div className="message-attachments">
@@ -526,6 +537,9 @@ const App = () => {
       if (dialog.open) dialog.close();
       settingsCloseTimerRef.current = null;
     }, SETTINGS_DIALOG_CLOSE_MS);
+  };
+  const handleCloseSettings = () => {
+    closeSettings();
   };
 
   useEffect(() => {
@@ -1203,10 +1217,10 @@ const App = () => {
         className="settings-dialog"
         onCancel={(event) => {
           event.preventDefault();
-          closeSettings();
+          handleCloseSettings();
         }}
         onClick={(event) => {
-          if (event.target === event.currentTarget) closeSettings();
+          if (event.target === event.currentTarget) handleCloseSettings();
         }}
       >
         <form method="dialog" className="settings-card">
@@ -1216,7 +1230,7 @@ const App = () => {
               className="icon-btn"
               title={chatViewModel.t("close")}
               type="button"
-              onClick={closeSettings}
+              onClick={handleCloseSettings}
             >
               <X aria-hidden="true" />
             </button>
