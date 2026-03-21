@@ -1266,17 +1266,27 @@ textarea:focus,
   -webkit-backdrop-filter: blur(var(--glass-blur-sm)) saturate(1.08);
 }
 
+.message-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.message-row.assistant {
+  align-items: flex-start;
+}
+
+.message-row.user {
+  align-items: flex-end;
+}
+
 .message.user {
-  align-self: flex-end;
   border-color: var(--user-border);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 22%),
     linear-gradient(135deg, rgba(167, 212, 176, 0.22), rgba(127, 177, 139, 0.08)),
     var(--user-bg);
-}
-
-.message.assistant {
-  align-self: flex-start;
 }
 
 .message-meta {
@@ -1386,25 +1396,19 @@ textarea::placeholder {
 }
 
 .message-actions {
-  position: absolute;
-  bottom: -24px;
   display: flex;
   gap: 8px;
+  padding: 0 10px;
   opacity: 0;
   transform: translateY(6px);
+  pointer-events: none;
 }
 
-.message.assistant .message-actions {
-  left: 18px;
-}
-
-.message.user .message-actions {
-  right: 18px;
-}
-
-.message:hover .message-actions {
+.message-row:hover .message-actions,
+.message-row:focus-within .message-actions {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto;
 }
 
 .message-actions button {
@@ -2389,6 +2393,7 @@ textarea::placeholder {
   .message-actions {
     opacity: 1;
     transform: translateY(0);
+    pointer-events: auto;
   }
 
   .translate-header,
@@ -2544,6 +2549,10 @@ textarea::placeholder {
   .chat-stack {
     gap: 16px;
     padding: 8px 8px 20px;
+  }
+
+  .message-row {
+    gap: 8px;
   }
 
   .composer {

@@ -117,129 +117,131 @@ const AttachmentCard = ({ attachment, compact = false, onRemove }: AttachmentCar
 
 const ChatMessage = memo(
   ({ msg, index, isEditing, editDraft, lang, showRegenerate, onCopy }: ChatMessageProps) => {
-  const labels = useMemo(
-    () => ({
-      confirm: chatViewModel.t("confirm"),
-      cancel: chatViewModel.t("cancel"),
-      rename: chatViewModel.t("rename"),
-      delete: chatViewModel.t("delete"),
-      copy: chatViewModel.t("copy"),
-      regenerate: chatViewModel.t("regenerate"),
-    }),
-    [lang]
-  );
-  const html = useMemo(() => renderMarkdown(msg.content || ""), [msg.content]);
-  const roleLabel =
-    msg.role === "user" ? chatViewModel.t("roleUser") : chatViewModel.t("roleAssistant");
-  const timeLabel = chatViewModel.formatTime(msg.ts);
-  return (
-    <div className={`message ${msg.role}`}>
-      <div className="message-meta">
-        <span className="message-role">{roleLabel}</span>
-        <span className="message-time">{timeLabel}</span>
-      </div>
-      <div className="message-actions">
-        {isEditing ? (
-          <>
-            <button
-              className="edit-confirm"
-              title={labels.confirm}
-              onClick={() => chatViewModel.saveEdit()}
-            >
-              <Check aria-hidden="true" />
-            </button>
-            <button
-              className="edit-cancel"
-              title={labels.cancel}
-              onClick={() => chatViewModel.closeEdit()}
-            >
-              <X aria-hidden="true" />
-            </button>
-            {msg.role === "user" ? (
-              <button
-                className="edit-resend"
-                title={chatViewModel.t("resend")}
-                onClick={() => void chatViewModel.resendFrom(index)}
-              >
-                <RotateCcw aria-hidden="true" />
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <>
-            {showRegenerate ? (
-              <button
-                className="regen-btn"
-                title={labels.regenerate}
-                onClick={() =>
-                  msg.role === "assistant"
-                    ? void chatViewModel.regenerateFromAssistant(index)
-                    : void chatViewModel.regenerateFromUser(index)
+    const labels = useMemo(
+      () => ({
+        confirm: chatViewModel.t("confirm"),
+        cancel: chatViewModel.t("cancel"),
+        rename: chatViewModel.t("rename"),
+        delete: chatViewModel.t("delete"),
+        copy: chatViewModel.t("copy"),
+        regenerate: chatViewModel.t("regenerate"),
+      }),
+      [lang]
+    );
+    const html = useMemo(() => renderMarkdown(msg.content || ""), [msg.content]);
+    const roleLabel =
+      msg.role === "user" ? chatViewModel.t("roleUser") : chatViewModel.t("roleAssistant");
+    const timeLabel = chatViewModel.formatTime(msg.ts);
+    return (
+      <div className={`message-row ${msg.role}`}>
+        <div className={`message ${msg.role}`}>
+          <div className="message-meta">
+            <span className="message-role">{roleLabel}</span>
+            <span className="message-time">{timeLabel}</span>
+          </div>
+          {isEditing ? (
+            <textarea
+              className="edit-textarea"
+              value={editDraft}
+              onChange={(event) => chatViewModel.updateEditDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  chatViewModel.saveEdit();
                 }
-              >
-                <RefreshCw aria-hidden="true" />
-              </button>
-            ) : null}
-            <button
-              className="copy-btn"
-              title={labels.copy}
-              onClick={() => {
-                void (async () => {
-                  try {
-                    await navigator.clipboard.writeText(msg.content || "");
-                    onCopy(true);
-                  } catch {
-                    onCopy(false);
-                  }
-                })();
+                if (event.key === "Escape") {
+                  chatViewModel.closeEdit();
+                }
               }}
-            >
-              <Copy aria-hidden="true" />
-            </button>
-            <button
-              className="edit-btn"
-              title={labels.rename}
-              onClick={() => chatViewModel.openEdit(index)}
-            >
-              <Pencil aria-hidden="true" />
-            </button>
-            <button
-              className="delete-btn"
-              title={labels.delete}
-              onClick={() => chatViewModel.deleteMessage(index)}
-            >
-              <Trash2 aria-hidden="true" />
-            </button>
-          </>
-        )}
-      </div>
-      {isEditing ? (
-        <textarea
-          className="edit-textarea"
-          value={editDraft}
-          onChange={(event) => chatViewModel.updateEditDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-              chatViewModel.saveEdit();
-            }
-            if (event.key === "Escape") {
-              chatViewModel.closeEdit();
-            }
-          }}
-          autoFocus
-        />
-      ) : (
-        <div className="message-content" dangerouslySetInnerHTML={{ __html: html }}></div>
-      )}
-      {msg.attachments && msg.attachments.length > 0 ? (
-        <div className="message-attachments">
-          {msg.attachments.map((attachment) => (
-            <AttachmentCard key={attachment.id} attachment={attachment} />
-          ))}
+              autoFocus
+            />
+          ) : (
+            <div className="message-content" dangerouslySetInnerHTML={{ __html: html }}></div>
+          )}
+          {msg.attachments && msg.attachments.length > 0 ? (
+            <div className="message-attachments">
+              {msg.attachments.map((attachment) => (
+                <AttachmentCard key={attachment.id} attachment={attachment} />
+              ))}
+            </div>
+          ) : null}
         </div>
-      ) : null}
-    </div>
-  );
+        <div className="message-actions">
+          {isEditing ? (
+            <>
+              <button
+                className="edit-confirm"
+                title={labels.confirm}
+                onClick={() => chatViewModel.saveEdit()}
+              >
+                <Check aria-hidden="true" />
+              </button>
+              <button
+                className="edit-cancel"
+                title={labels.cancel}
+                onClick={() => chatViewModel.closeEdit()}
+              >
+                <X aria-hidden="true" />
+              </button>
+              {msg.role === "user" ? (
+                <button
+                  className="edit-resend"
+                  title={chatViewModel.t("resend")}
+                  onClick={() => void chatViewModel.resendFrom(index)}
+                >
+                  <RotateCcw aria-hidden="true" />
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {showRegenerate ? (
+                <button
+                  className="regen-btn"
+                  title={labels.regenerate}
+                  onClick={() =>
+                    msg.role === "assistant"
+                      ? void chatViewModel.regenerateFromAssistant(index)
+                      : void chatViewModel.regenerateFromUser(index)
+                  }
+                >
+                  <RefreshCw aria-hidden="true" />
+                </button>
+              ) : null}
+              <button
+                className="copy-btn"
+                title={labels.copy}
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await navigator.clipboard.writeText(msg.content || "");
+                      onCopy(true);
+                    } catch {
+                      onCopy(false);
+                    }
+                  })();
+                }}
+              >
+                <Copy aria-hidden="true" />
+              </button>
+              <button
+                className="edit-btn"
+                title={labels.rename}
+                onClick={() => chatViewModel.openEdit(index)}
+              >
+                <Pencil aria-hidden="true" />
+              </button>
+              <button
+                className="delete-btn"
+                title={labels.delete}
+                onClick={() => chatViewModel.deleteMessage(index)}
+              >
+                <Trash2 aria-hidden="true" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
   }
 );
 
