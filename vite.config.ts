@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     target: "chrome139",
+    cssMinify: "esbuild", // Use "true" will lose the liquid glass
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
