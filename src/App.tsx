@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type {
   CSSProperties,
   ClipboardEvent,
@@ -307,6 +315,8 @@ const App = () => {
   const exportDialogRef = useRef<HTMLDialogElement | null>(null);
   const apiDialogRef = useRef<HTMLDialogElement | null>(null);
   const previewDialogRef = useRef<HTMLDialogElement | null>(null);
+  const topbarRef = useRef<HTMLElement | null>(null);
+  const composerRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
@@ -319,6 +329,7 @@ const App = () => {
   const [exportFormat, setExportFormat] = useState<"json" | "md" | "txt">("json");
   const [importStatus, setImportStatus] = useState<string>("");
   const [backupStatus, setBackupStatus] = useState<string>("");
+  const [floatingLayout, setFloatingLayout] = useState({ topbarHeight: 152, composerHeight: 216 });
   const [toast, setToast] = useState<{ message: string; tone?: "success" | "error" } | null>(
     null
   );
@@ -327,8 +338,13 @@ const App = () => {
   const settingsCloseTimerRef = useRef<number | null>(null);
 
   const appStyle = useMemo(
-    () => ({ "--sidebar-width": `${state.settings.sidebarWidth}px` } as CSSProperties),
-    [state.settings.sidebarWidth]
+    () =>
+      ({
+        "--sidebar-width": `${state.settings.sidebarWidth}px`,
+        "--floating-topbar-height": `${floatingLayout.topbarHeight}px`,
+        "--floating-composer-height": `${floatingLayout.composerHeight}px`,
+      }) as CSSProperties,
+    [floatingLayout.composerHeight, floatingLayout.topbarHeight, state.settings.sidebarWidth]
   );
 
   useEffect(() => {
@@ -443,6 +459,56 @@ const App = () => {
     if (!autoScrollRef.current) return;
     node.scrollTop = node.scrollHeight;
   }, [active?.id, active?.messages.length, active?.messages.at(-1)?.content]);
+
+  const activeMessageCount = active?.messages.length ?? 0;
+  const activeAttachmentCount =
+    active?.messages.reduce((count, message) => count + (message.attachments?.length ?? 0), 0) ?? 0;
+  const hasMessages = activeMessageCount > 0;
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const nextTopbarHeight = Math.ceil(topbarRef.current?.offsetHeight ?? 152);
+      const nextComposerHeight = Math.ceil(composerRef.current?.offsetHeight ?? 216);
+      setFloatingLayout((prev) =>
+        prev.topbarHeight === nextTopbarHeight && prev.composerHeight === nextComposerHeight
+          ? prev
+          : { topbarHeight: nextTopbarHeight, composerHeight: nextComposerHeight }
+      );
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      measure();
+    });
+
+    if (topbarRef.current) observer.observe(topbarRef.current);
+    if (composerRef.current) observer.observe(composerRef.current);
+
+    return () => observer.disconnect();
+  }, [
+    active?.id,
+    active?.name,
+    activeAttachmentCount,
+    activeMessageCount,
+    promptContextLabel,
+    state.composerAttachments.length,
+    state.currentLang,
+    state.renameDraft,
+    state.renameSource,
+    state.renameTargetId,
+    state.settings.sendShortcut,
+    state.statusText,
+    state.streaming,
+  ]);
+
+  useEffect(() => {
+    const node = chatRef.current;
+    if (!node || !autoScrollRef.current) return;
+    node.scrollTop = node.scrollHeight;
+  }, [floatingLayout.composerHeight, floatingLayout.topbarHeight]);
 
   const historyGroups = useMemo(() => {
     const groups: Array<{ date: string; items: typeof state.histories }> = [];
@@ -567,10 +633,6 @@ const App = () => {
   const previewUrl = previewAttachment ? getAttachmentPreviewUrl(previewAttachment) : "";
   const closePreview = () => chatViewModel.closeAttachmentPreview();
   const isRecording = state.recording;
-  const activeMessageCount = active?.messages.length ?? 0;
-  const activeAttachmentCount =
-    active?.messages.reduce((count, message) => count + (message.attachments?.length ?? 0), 0) ?? 0;
-  const hasMessages = activeMessageCount > 0;
 
   const saveSettings = () => {
     const nextSettings = getSavedSettingsFromDraft(draftSettings, state.settings);
@@ -860,7 +922,7 @@ const App = () => {
 
         <main className="main">
           <div className="main-shell">
-            <header className="topbar">
+            <header className="topbar" ref={topbarRef}>
               <div className="title-wrap">
                 <div className="title" id="current-title">
                   {state.renameSource === "topbar" && state.renameTargetId === active?.id ? (
@@ -984,7 +1046,7 @@ const App = () => {
               </div>
             </section>
 
-            <footer className="composer">
+            <footer className="composer" ref={composerRef}>
               <div className="composer-head">
                 <div className="composer-hint">{chatViewModel.t("composerHint")}</div>
                 {state.composerAttachments.length > 0 ? (
