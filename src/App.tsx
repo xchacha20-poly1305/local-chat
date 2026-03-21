@@ -252,6 +252,11 @@ type SettingsDraft = {
 };
 
 const SETTINGS_DIALOG_CLOSE_MS = 240;
+const hasUnsavedSettingsChanges = (draft: SettingsDraft, saved: SettingsDraft) =>
+  draft.sendShortcut !== saved.sendShortcut ||
+  draft.theme !== saved.theme ||
+  draft.systemPrompt !== saved.systemPrompt ||
+  draft.titleTemplate !== saved.titleTemplate;
 
 const App = () => {
   const state = useSyncExternalStore(chatViewModel.subscribe, chatViewModel.getSnapshot);
@@ -492,6 +497,10 @@ const App = () => {
   const closeSettings = () => {
     const dialog = dialogRef.current;
     if (!dialog || !dialog.open) return;
+    if (hasUnsavedSettingsChanges(draftSettings, state.settings)) {
+      const confirmed = window.confirm(chatViewModel.t("settingsUnsavedConfirm"));
+      if (!confirmed) return;
+    }
     if (settingsCloseTimerRef.current) {
       window.clearTimeout(settingsCloseTimerRef.current);
       settingsCloseTimerRef.current = null;
