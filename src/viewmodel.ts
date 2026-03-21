@@ -3,6 +3,7 @@ import { marked } from "marked";
 const STORAGE_KEY = "local-chat-histories";
 const LANG_KEY = "local-chat-language";
 const SETTINGS_KEY = "local-chat-settings";
+const CHAT_ROUTE_PREFIX = "/chat/";
 const SIDEBAR_WIDTH_DEFAULT = 280;
 const SIDEBAR_WIDTH_MIN = 220;
 const SIDEBAR_WIDTH_MAX = 420;
@@ -299,6 +300,7 @@ export class ChatViewModel {
     string,
     { session: LanguageModel; modalities: Set<LanguageModelMessageType> }
   >();
+  private routeCleanup: (() => void) | null = null;
   private readonly maxChatSessions = 8;
   private availabilityTimer: number | null = null;
   private availabilityInFlight = false;
@@ -314,7 +316,7 @@ export class ChatViewModel {
     const currentLang = this.initLanguage();
     const settings = this.loadSettings();
     const histories = this.loadHistories();
-    const activeId = null;
+    const activeId = this.resolveInitialActiveId(histories);
 
     this.state = {
       histories,
@@ -339,6 +341,75 @@ export class ChatViewModel {
       recording: false,
     };
   }
+
+  private getHistoryIdFromLocation = () => {
+    if (typeof window === "undefined") return null;
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    if (!hash.startsWith(CHAT_ROUTE_PREFIX)) return null;
+    const id = hash.slice(CHAT_ROUTE_PREFIX.length).trim();
+    return id ? decodeURIComponent(id) : null;
+  };
+
+  private resolveInitialActiveId(histories: History[]) {
+    const routeId = this.getHistoryIdFromLocation();
+    if (!routeId) return null;
+    return histories.some((history) => history.id === routeId) ? routeId : null;
+  }
+
+  private syncLocationWithActive(id: string | null, mode: "push" | "replace" = "push") {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.hash = id ? `${CHAT_ROUTE_PREFIX}${encodeURIComponent(id)}` : "";
+    const next = url.toString();
+    const current = window.location.toString();
+    if (next === current) return;
+    const method = mode === "replace" ? "replaceState" : "pushState";
+    window.history[method](null, "", next);
+  }
+
+  private applyLocationSelection = () => {
+    const routeId = this.getHistoryIdFromLocation();
+    const nextActiveId =
+      routeId && this.state.histories.some((history) => history.id === routeId) ? routeId : null;
+    if (routeId && !nextActiveId) {
+      this.syncLocationWithActive(null, "replace");
+    }
+    if (nextActiveId === this.state.activeId) return;
+    if (this.state.recording) this.cancelRecording();
+    this.revokeAttachments(this.state.composerAttachments);
+    this.setState((prev) => ({
+      ...prev,
+      activeId: nextActiveId,
+      editingIndex: null,
+      editDraft: "",
+      renameTargetId: null,
+      renameDraft: "",
+      renameSource: null,
+      composerAttachments: [],
+      previewAttachment: null,
+    }));
+    this.syncActiveSessionContext(nextActiveId);
+  };
+
+  startRouteSync = () => {
+    if (typeof window === "undefined") return () => {};
+    if (this.routeCleanup) return this.routeCleanup;
+    const handleRouteChange = () => this.applyLocationSelection();
+    window.addEventListener("popstate", handleRouteChange);
+    window.addEventListener("hashchange", handleRouteChange);
+    handleRouteChange();
+    const cleanup = () => {
+      window.removeEventListener("popstate", handleRouteChange);
+      window.removeEventListener("hashchange", handleRouteChange);
+      if (this.routeCleanup === cleanup) {
+        this.routeCleanup = null;
+      }
+    };
+    this.routeCleanup = cleanup;
+    return cleanup;
+  };
 
   subscribe = (listener: Listener) => {
     this.listeners.add(listener);
@@ -766,6 +837,7 @@ export class ChatViewModel {
         previewAttachment: null,
       };
     });
+    this.syncLocationWithActive(this.state.activeId);
     this.setPromptContextState(null, null);
   };
 
@@ -783,6 +855,7 @@ export class ChatViewModel {
       composerAttachments: [],
       previewAttachment: null,
     }));
+    this.syncLocationWithActive(id);
     this.syncActiveSessionContext(id);
   };
 
@@ -852,6 +925,7 @@ export class ChatViewModel {
         previewAttachment: null,
       };
     });
+    this.syncLocationWithActive(null, "replace");
   };
 
   beginRenameTopbar = () => {
@@ -1382,6 +1456,7 @@ export class ChatViewModel {
     const active = this.getActive();
     if (!active) return;
     const targetId = active.id;
+    this.syncLocationWithActive(targetId);
     const token = this.beginStreaming(targetId);
 
     let cancelled = false;

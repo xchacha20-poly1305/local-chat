@@ -365,6 +365,8 @@ const App = () => {
     chatViewModel.startAvailabilityCheck();
   }, []);
 
+  useEffect(() => chatViewModel.startRouteSync(), []);
+
   useEffect(() => {
     const dialog = apiDialogRef.current;
     if (!dialog) return;
