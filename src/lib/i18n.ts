@@ -60,11 +60,12 @@ export const I18N: Record<LangKey, Record<string, string>> = {
 export const DEFAULT_LANG: LangKey = "zh-CN";
 
 export function t(lang: LangKey, key: string): string {
-  return I18N[lang]?.[key] || I18N["en-US"][key] || key;
+  if (key in I18N[lang]) return I18N[lang][key];
+  return I18N["en-US"][key] ?? key;
 }
 
 export function formatDate(lang: LangKey, ts: number): string {
-  const locale = I18N[lang]?.locale || "en-US";
+  const locale = I18N[lang].locale;
   return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",

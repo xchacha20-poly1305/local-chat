@@ -67,6 +67,9 @@ export const TranslateI18N = {
   },
 } as const;
 
+const hasTranslateLang = (value: string): value is TranslateLang =>
+  Object.hasOwn(TranslateI18N, value);
+
 export type TranslateLang = keyof typeof TranslateI18N;
 
 export type LanguageOption = {
@@ -238,25 +241,20 @@ export class TranslateViewModel {
 
   t = (key: keyof (typeof TranslateI18N)["en-US"]) => {
     const { currentLang } = this.state;
-    return (
-      (TranslateI18N[currentLang] && TranslateI18N[currentLang][key]) ||
-      TranslateI18N["en-US"][key] ||
-      key
-    );
+    return TranslateI18N[currentLang][key];
   };
 
   private initLanguage(): TranslateLang {
     const saved = localStorage.getItem(LANG_KEY) as TranslateLang | null;
-    if (saved && TranslateI18N[saved]) return saved;
-    const browserLang = (navigator.language || "en-US").toLowerCase();
+    if (saved !== null && hasTranslateLang(saved)) return saved;
+    const browserLang = navigator.language.toLowerCase();
     const match = (Object.keys(TranslateI18N) as TranslateLang[]).find(
       (key) => key.toLowerCase() === browserLang || key.toLowerCase().startsWith(browserLang)
     );
-    return match || "en-US";
+    return match ?? "en-US";
   }
 
   setLanguage = (lang: TranslateLang) => {
-    if (!TranslateI18N[lang]) return;
     const prevState = this.state;
     const nextTarget =
       prevState.targetLangMode === "auto"
@@ -343,7 +341,7 @@ export class TranslateViewModel {
     this.setState((prev) => {
       const inferredSource =
         prev.sourceLang === AUTO_OPTION.code ? prev.detectedLang : prev.sourceLang;
-      const nextTarget = inferredSource || this.defaultTargetForLang(prev.currentLang);
+      const nextTarget = inferredSource ?? this.defaultTargetForLang(prev.currentLang);
       const nextSource = prev.targetLang;
       return {
         ...prev,
@@ -504,7 +502,7 @@ export class TranslateViewModel {
       try {
         const source =
           this.state.sourceLang === AUTO_OPTION.code
-            ? this.state.detectedLang || "en"
+            ? this.state.detectedLang ?? "en"
             : this.state.sourceLang;
         const availability = await translatorApi.availability({
           sourceLanguage: source,
@@ -537,7 +535,7 @@ export class TranslateViewModel {
         this.state.sourceLang === AUTO_OPTION.code ? "en" : this.state.sourceLang,
         this.state.targetLang
       );
-      translator.destroy?.();
+      translator.destroy();
       this.setApiAvailability("available");
     } catch {
       this.setApiAvailability("unavailable");
@@ -557,7 +555,7 @@ export class TranslateViewModel {
           this.state.sourceLang === AUTO_OPTION.code ? "en" : this.state.sourceLang,
         targetLanguage: this.state.targetLang,
         monitor: (monitor) => {
-          monitor.addEventListener?.("downloadprogress", (event) => {
+          monitor.addEventListener("downloadprogress", (event) => {
             const loaded = event.loaded;
             if (typeof loaded !== "number") return;
             const progress = Math.max(0, Math.min(1, loaded));
@@ -565,7 +563,7 @@ export class TranslateViewModel {
           });
         },
       });
-      translator.destroy?.();
+      translator.destroy();
       this.setApiAvailability("available");
       this.setState((prev) => ({ ...prev, downloadProgress: null }));
     } catch {
@@ -588,9 +586,9 @@ export class TranslateViewModel {
   private async detectLanguage(input: string, signal?: AbortSignal) {
     const detector = await this.getDetector();
     const result = await detector.detect(input, { signal });
-    if (!result || result.length === 0) return null;
-    const sorted = [...result].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-    return sorted[0]?.detectedLanguage || null;
+    if (result.length === 0) return null;
+    const sorted = [...result].sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+    return sorted[0].detectedLanguage;
   }
 
   private async createTranslator(source: string, target: string) {
@@ -609,7 +607,7 @@ export class TranslateViewModel {
       const oldestKey = this.translatorCache.keys().next().value;
       if (oldestKey) {
         const oldest = this.translatorCache.get(oldestKey);
-        oldest?.destroy?.();
+        oldest?.destroy();
         this.translatorCache.delete(oldestKey);
       }
     }
@@ -631,10 +629,10 @@ export class TranslateViewModel {
       .toLowerCase()
       .split("-")
       .filter(Boolean);
-    const explicitScript = parts.find((part, index) => index > 0 && part.length === 4) || null;
+    const explicitScript = parts.find((part, index) => index > 0 && part.length === 4) ?? null;
     if (explicitScript) return explicitScript;
     if (this.getLanguageBase(code) !== "zh") return null;
-    const region = parts.find((part, index) => index > 0 && part.length === 2) || null;
+    const region = parts.find((part, index) => index > 0 && part.length === 2) ?? null;
     if (region === "cn" || region === "sg" || region === "my") return "hans";
     if (region === "tw" || region === "hk" || region === "mo") return "hant";
     return null;
@@ -675,7 +673,7 @@ export class TranslateViewModel {
       if (candidates.indexOf(candidate) !== index) return false;
       return !this.isSameLanguage(source, candidate);
     });
-    return next || defaultTarget;
+    return next ?? defaultTarget;
   }
 
   private async translateNow() {
@@ -754,8 +752,11 @@ export class TranslateViewModel {
 
       const translator = await this.getTranslator(sourceLang, targetLang);
       if (!this.isTokenActive(token)) return;
-      if (translator.translateStreaming) {
-        const stream = translator.translateStreaming(input, { signal: abortController.signal });
+      const translateStreaming = Reflect.get(translator, "translateStreaming");
+      if (typeof translateStreaming === "function") {
+        const stream = translateStreaming.call(translator, input, {
+          signal: abortController.signal,
+        });
         await this.readStream(
           stream,
           (chunk) => {

@@ -202,6 +202,8 @@ export const I18N = {
   },
 } as const;
 
+const hasI18nLang = (value: string): value is keyof typeof I18N => Object.hasOwn(I18N, value);
+
 type Role = "user" | "assistant";
 type SendShortcut = "ctrlEnter" | "shiftEnter" | "enter";
 export type ThemeMode = "system" | "light" | "dark";
@@ -287,19 +289,8 @@ const formatterOptions = {
 
 marked.setOptions(formatterOptions);
 
-const escapeHtml = (text: string) =>
-  text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-
 export const renderMarkdown = (md: string) => {
-  if (marked) {
-    return marked.parse(md || "");
-  }
-  return `<p>${escapeHtml(md || "")}</p>`;
+  return marked.parse(md);
 };
 
 export class ChatViewModel {
@@ -379,9 +370,7 @@ export class ChatViewModel {
 
   t = (key: keyof (typeof I18N)["en-US"]) => {
     const { currentLang } = this.state;
-    return (
-      (I18N[currentLang] && I18N[currentLang][key]) || I18N["en-US"][key] || key
-    );
+    return I18N[currentLang][key];
   };
 
   private formatApiStatusText(status: ApiAvailability, lang: keyof typeof I18N) {
@@ -465,7 +454,7 @@ export class ChatViewModel {
         topK: 40,
         ...expected,
         monitor: (monitor) => {
-          monitor.addEventListener?.("downloadprogress", (event) => {
+          monitor.addEventListener("downloadprogress", (event) => {
             const loaded = event.loaded;
             if (typeof loaded !== "number") return;
             const progress = Math.max(0, Math.min(1, loaded));
@@ -485,7 +474,7 @@ export class ChatViewModel {
   };
 
   formatDate = (ts: number) => {
-    const locale = I18N[this.state.currentLang]?.locale || "en-US";
+    const locale = I18N[this.state.currentLang].locale;
     return new Intl.DateTimeFormat(locale, {
       year: "numeric",
       month: "2-digit",
@@ -494,7 +483,7 @@ export class ChatViewModel {
   };
 
   formatTime = (ts: number) => {
-    const locale = I18N[this.state.currentLang]?.locale || "en-US";
+    const locale = I18N[this.state.currentLang].locale;
     return new Date(ts).toLocaleString(locale, {
       month: "2-digit",
       day: "2-digit",
@@ -504,7 +493,7 @@ export class ChatViewModel {
   };
 
   private formatDateTime = (ts: number) => {
-    const locale = I18N[this.state.currentLang]?.locale || "en-US";
+    const locale = I18N[this.state.currentLang].locale;
     return new Date(ts).toLocaleString(locale, {
       year: "numeric",
       month: "2-digit",
@@ -729,17 +718,16 @@ export class ChatViewModel {
 
   private initLanguage(): keyof typeof I18N {
     const saved = localStorage.getItem(LANG_KEY) as keyof typeof I18N | null;
-    if (saved && I18N[saved]) return saved;
+    if (saved !== null && hasI18nLang(saved)) return saved;
 
-    const browserLang = (navigator.language || "en-US").toLowerCase();
+    const browserLang = navigator.language.toLowerCase();
     const match = (Object.keys(I18N) as Array<keyof typeof I18N>).find(
       (key) => key.toLowerCase() === browserLang || key.toLowerCase().startsWith(browserLang)
     );
-    return match || "en-US";
+    return match ?? "en-US";
   }
 
   setLanguage = (lang: keyof typeof I18N) => {
-    if (!I18N[lang]) return;
     localStorage.setItem(LANG_KEY, lang);
     this.clearChatSessions();
     this.setState((prev) => ({
@@ -753,7 +741,7 @@ export class ChatViewModel {
     const now = Date.now();
     return {
       id: crypto.randomUUID(),
-      name: name || I18N[lang].defaultTitle,
+      name: name ?? I18N[lang].defaultTitle,
       createdAt: now,
       updatedAt: now,
       autoTitleDone: false,
@@ -1065,7 +1053,7 @@ export class ChatViewModel {
   startRecording = async () => {
     if (this.state.recording) return;
     if (this.state.streaming) return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    if (!("mediaDevices" in navigator) || typeof MediaRecorder === "undefined") {
       this.setState((prev) => ({ ...prev, statusText: this.t("recordUnavailable") }));
       return;
     }
@@ -1075,7 +1063,7 @@ export class ChatViewModel {
       this.recordDiscard = false;
       this.recordChunks = [];
       recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) this.recordChunks.push(event.data);
+        if (event.data.size > 0) this.recordChunks.push(event.data);
       };
       recorder.onstop = async () => {
         if (this.recordDiscard) {
@@ -1117,7 +1105,7 @@ export class ChatViewModel {
 
   openAttachmentPreview = (attachment: Attachment) => {
     if (attachment.kind === "text") return;
-    const previewUrl = attachment.dataUrl || attachment.transientUrl;
+    const previewUrl = attachment.dataUrl ?? attachment.transientUrl;
     if (!previewUrl) return;
     this.setState((prev) => ({ ...prev, previewAttachment: attachment }));
   };
@@ -1159,8 +1147,6 @@ export class ChatViewModel {
       if (!history) return prev;
       const idx = prev.editingIndex;
       if (idx === null) return prev;
-      const msg = history.messages[idx];
-      if (!msg) return prev;
       const histories = prev.histories.map((h) =>
         h.id === history.id
           ? {
@@ -1412,13 +1398,13 @@ export class ChatViewModel {
   };
 
   private getActive = (state: State = this.state) =>
-    state.histories.find((h) => h.id === state.activeId) || null;
+    state.histories.find((h) => h.id === state.activeId) ?? null;
 
   private formatAttachmentLabel = (attachment: Attachment) =>
     `Attachment (${attachment.kind}): ${attachment.name} (${this.formatBytes(attachment.size)})`;
 
   private formatTextAttachment = (attachment: Attachment) => {
-    const preview = (attachment.text || "").trim();
+    const preview = attachment.text?.trim() ?? "";
     const limited = this.limitText(preview, MAX_PROMPT_TEXT_CHARS);
     if (limited.text) {
       const suffix = attachment.textTruncated || limited.truncated ? "\n[truncated]" : "";
@@ -1428,7 +1414,7 @@ export class ChatViewModel {
   };
 
   private async loadAttachmentBlob(attachment: Attachment) {
-    const source = attachment.dataUrl || attachment.transientUrl;
+    const source = attachment.dataUrl ?? attachment.transientUrl;
     if (!source) return null;
     try {
       const response = await fetch(source);
@@ -1472,7 +1458,7 @@ export class ChatViewModel {
     const messages: LanguageModelMessage[] = [];
     for (const message of history.messages) {
       const parts: LanguageModelMessageContent[] = [];
-      const content = message.content?.trim();
+      const content = message.content.trim();
       if (content) parts.push({ type: "text", value: content });
       if (message.attachments?.length) {
         for (const attachment of message.attachments) {
@@ -1592,14 +1578,6 @@ export class ChatViewModel {
       if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
       this.availabilityTimer = null;
       this.setApiAvailability("ready");
-      this.availabilityInFlight = false;
-      return;
-    }
-
-    if (availability === "unavailable") {
-      if (this.availabilityTimer) window.clearTimeout(this.availabilityTimer);
-      this.availabilityTimer = null;
-      this.setApiAvailability("needFlag");
       this.availabilityInFlight = false;
       return;
     }
@@ -1775,35 +1753,40 @@ export class ChatViewModel {
     }
   }
 
+  private isStreamCancelled(token: { cancelled: boolean }) {
+    return token.cancelled;
+  }
+
   private async streamAssistant(
     prompt: LanguageModelPrompt,
     historyId: string,
     token: { historyId: string; cancelled: boolean },
     modalities: Set<LanguageModelMessageType>
   ) {
-    if (token.cancelled) return true;
+    if (this.isStreamCancelled(token)) return true;
     const session = await this.getChatSession(historyId, modalities);
-    if (token.cancelled) return true;
+    if (this.isStreamCancelled(token)) return true;
     this.updateActiveSessionContext(historyId, session);
     try {
-      if (session.promptStreaming) {
+      const promptStreaming = Reflect.get(session, "promptStreaming");
+      if (typeof promptStreaming === "function") {
         let output = "";
-        const stream = session.promptStreaming(prompt);
+        const stream = promptStreaming.call(session, prompt);
         await this.readPromptStream(
           stream,
           (chunk) => {
-            if (token.cancelled) return;
+            if (this.isStreamCancelled(token)) return;
             output += chunk;
-            if (token.cancelled) return;
+            if (this.isStreamCancelled(token)) return;
             this.updateLastAssistant(output, historyId);
           },
           token
         );
-        return token.cancelled;
+        return this.isStreamCancelled(token);
       }
 
       const output = await session.prompt(prompt);
-      if (token.cancelled) return true;
+      if (this.isStreamCancelled(token)) return true;
       this.updateLastAssistant(output, historyId);
       return false;
     } finally {
@@ -1867,9 +1850,10 @@ export class ChatViewModel {
         assistant: firstAssistant.content,
       });
 
-      if (session.promptStreaming) {
+      const promptStreaming = Reflect.get(session, "promptStreaming");
+      if (typeof promptStreaming === "function") {
         let output = "";
-        const stream = session.promptStreaming(prompt);
+        const stream = promptStreaming.call(session, prompt);
         await this.readPromptStream(stream, (chunk) => {
           output += chunk;
           const clean = output.replace(/[\r\n]+/g, " ").trim().slice(0, 24);

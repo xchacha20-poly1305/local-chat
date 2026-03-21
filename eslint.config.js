@@ -59,6 +59,22 @@ export default defineConfig(
     },
     rules: {
       "import/no-deprecated": "warn",
+      "import/no-duplicates": "warn",
+      "@typescript-eslint/no-unnecessary-condition": [
+        "warn",
+        {
+          allowConstantLoopConditions: true,
+        },
+      ],
+      "@typescript-eslint/prefer-nullish-coalescing": [
+        "warn",
+        {
+          ignoreConditionalTests: true,
+          ignoreMixedLogicalExpressions: true,
+        },
+      ],
+      curly: ["warn", "multi-line"],
+      eqeqeq: ["warn", "always"],
     },
   }
 );

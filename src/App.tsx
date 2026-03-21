@@ -40,13 +40,13 @@ type AttachmentCardProps = {
 };
 
 const getAttachmentPreviewUrl = (attachment: Attachment) =>
-  attachment.dataUrl || attachment.transientUrl || "";
+  attachment.dataUrl ?? attachment.transientUrl ?? "";
 
 const AttachmentCard = ({ attachment, compact = false, onRemove }: AttachmentCardProps) => {
   const previewUrl = getAttachmentPreviewUrl(attachment);
   const sizeLabel = chatViewModel.formatBytes(attachment.size);
   const showTempNote = Boolean(attachment.transientUrl && !attachment.dataUrl);
-  const textPreview = attachment.text?.trim() || "";
+  const textPreview = attachment.text?.trim() ?? "";
   const canPreview = Boolean(previewUrl) && attachment.kind === "image";
   const previewLabel = chatViewModel.t("openPreview");
   const handlePreview = () => {
@@ -260,12 +260,12 @@ const hasUnsavedSettingsChanges = (draft: SettingsDraft, saved: SettingsDraft) =
 
 const App = () => {
   const state = useSyncExternalStore(chatViewModel.subscribe, chatViewModel.getSnapshot);
-  const active = state.histories.find((h) => h.id === state.activeId) || null;
+  const active = state.histories.find((h) => h.id === state.activeId) ?? null;
   const promptContextLabel = useMemo(() => {
     if (state.promptContextUsage === null || state.promptContextWindow === null) {
       return "--";
     }
-    const locale = I18N[state.currentLang]?.locale || "en-US";
+    const locale = I18N[state.currentLang].locale;
     const formatter = new Intl.NumberFormat(locale);
     const percent =
       state.promptContextWindow > 0
@@ -341,7 +341,7 @@ const App = () => {
       active: true,
     };
     document.body.classList.add("resizing");
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   useEffect(() => {
@@ -359,8 +359,7 @@ const App = () => {
     if (!dialog) return;
     if (state.apiStatusText) {
       if (!dialog.open) {
-        if (dialog.showModal) dialog.showModal();
-        else dialog.setAttribute("open", "true");
+        dialog.showModal();
       }
     } else if (dialog.open) {
       dialog.close();
@@ -372,8 +371,7 @@ const App = () => {
     if (!dialog) return;
     if (state.previewAttachment) {
       if (!dialog.open) {
-        if (dialog.showModal) dialog.showModal();
-        else dialog.setAttribute("open", "true");
+        dialog.showModal();
       }
     } else if (dialog.open) {
       dialog.close();
@@ -489,8 +487,7 @@ const App = () => {
     }
     dialog.classList.remove("is-closing");
     if (!dialog.open) {
-      if (dialog.showModal) dialog.showModal();
-      else dialog.setAttribute("open", "true");
+      dialog.showModal();
     }
   };
 
@@ -549,9 +546,10 @@ const App = () => {
   const hasMessages = activeMessageCount > 0;
 
   const saveSettings = () => {
+    const titleTemplate = draftSettings.titleTemplate.trim();
     chatViewModel.updateSettings({
       ...draftSettings,
-      titleTemplate: draftSettings.titleTemplate.trim() || chatViewModel.getTitlePrompt(),
+      titleTemplate: titleTemplate.length > 0 ? titleTemplate : chatViewModel.getTitlePrompt(),
     });
     closeSettings();
   };
@@ -559,8 +557,7 @@ const App = () => {
   const openExportDialog = () => {
     const dialog = exportDialogRef.current;
     if (!dialog) return;
-    if (dialog.showModal) dialog.showModal();
-    else dialog.setAttribute("open", "true");
+    dialog.showModal();
   };
 
   const closeExportDialog = () => {
@@ -602,7 +599,7 @@ const App = () => {
       setDraftSettings(chatViewModel.getSnapshot().settings);
       setImportStatus("");
     } else {
-      setImportStatus(result.error || "Import failed.");
+      setImportStatus(result.error ?? "Import failed.");
     }
   };
 
@@ -614,7 +611,7 @@ const App = () => {
         setDraftSettings(chatViewModel.getSnapshot().settings);
         setImportStatus("");
       } else {
-        setImportStatus(result.error || "Import failed.");
+        setImportStatus(result.error ?? "Import failed.");
       }
     } catch {
       setImportStatus(chatViewModel.t("clipboardUnavailable"));
@@ -665,8 +662,8 @@ const App = () => {
   };
 
   const onInputPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = event.clipboardData?.items;
-    if (!items || items.length === 0) return;
+    const { items } = event.clipboardData;
+    if (items.length === 0) return;
     const files: File[] = [];
     for (const item of Array.from(items)) {
       if (item.kind !== "file") continue;
@@ -850,7 +847,7 @@ const App = () => {
                       autoFocus
                     />
                   ) : (
-                    active?.name || chatViewModel.t("defaultTitle")
+                    active ? active.name : chatViewModel.t("defaultTitle")
                   )}
                 </div>
                 <div className="title-meta">
@@ -1173,7 +1170,7 @@ const App = () => {
         <div className="preview-card">
           <div className="preview-header">
             <div className="preview-title">
-              {previewAttachment?.name || chatViewModel.t("attachments")}
+              {previewAttachment?.name ?? chatViewModel.t("attachments")}
             </div>
             <button
               className="icon-btn"
@@ -1433,7 +1430,7 @@ const App = () => {
         </div>
       </dialog>
 
-      <div className={`toast ${toast ? "show" : ""} ${toast?.tone || ""}`}>
+      <div className={`toast ${toast ? "show" : ""} ${toast?.tone ?? ""}`}>
         {toast?.message}
       </div>
     </>

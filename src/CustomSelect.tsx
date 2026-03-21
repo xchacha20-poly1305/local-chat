@@ -57,14 +57,14 @@ const CustomSelect = ({
         onClick={() => setOpen((prev) => !prev)}
       >
         <span className="custom-select-copy">
-          <span className="custom-select-title">{selected?.label}</span>
-          {selected?.caption ? (
+          <span className="custom-select-title">{selected.label}</span>
+          {selected.caption ? (
             <span className="custom-select-caption">{selected.caption}</span>
           ) : null}
         </span>
         <span className="custom-select-meta">
           {showBadge ? (
-            <span className="custom-select-badge">{selected?.badge ?? selected?.value}</span>
+            <span className="custom-select-badge">{selected.badge ?? selected.value}</span>
           ) : null}
           <ChevronDown aria-hidden="true" />
         </span>
