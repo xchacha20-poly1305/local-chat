@@ -258,6 +258,15 @@ const hasUnsavedSettingsChanges = (draft: SettingsDraft, saved: SettingsDraft) =
   draft.systemPrompt !== saved.systemPrompt ||
   draft.titleTemplate !== saved.titleTemplate;
 
+const getSavedSettingsFromDraft = (
+  draft: SettingsDraft,
+  currentSettings: SettingsDraft
+): SettingsDraft => ({
+  ...currentSettings,
+  ...draft,
+  titleTemplate: draft.titleTemplate.trim(),
+});
+
 const App = () => {
   const state = useSyncExternalStore(chatViewModel.subscribe, chatViewModel.getSnapshot);
   const active = state.histories.find((h) => h.id === state.activeId) ?? null;
@@ -491,10 +500,10 @@ const App = () => {
     }
   };
 
-  const closeSettings = () => {
+  const closeSettings = (options?: { skipUnsavedCheck?: boolean }) => {
     const dialog = dialogRef.current;
     if (!dialog || !dialog.open) return;
-    if (hasUnsavedSettingsChanges(draftSettings, state.settings)) {
+    if (!options?.skipUnsavedCheck && hasUnsavedSettingsChanges(draftSettings, state.settings)) {
       const confirmed = window.confirm(chatViewModel.t("settingsUnsavedConfirm"));
       if (!confirmed) return;
     }
@@ -546,12 +555,10 @@ const App = () => {
   const hasMessages = activeMessageCount > 0;
 
   const saveSettings = () => {
-    const titleTemplate = draftSettings.titleTemplate.trim();
-    chatViewModel.updateSettings({
-      ...draftSettings,
-      titleTemplate: titleTemplate.length > 0 ? titleTemplate : chatViewModel.getTitlePrompt(),
-    });
-    closeSettings();
+    const nextSettings = getSavedSettingsFromDraft(draftSettings, state.settings);
+    chatViewModel.updateSettings(nextSettings);
+    setDraftSettings(nextSettings);
+    closeSettings({ skipUnsavedCheck: true });
   };
 
   const openExportDialog = () => {
