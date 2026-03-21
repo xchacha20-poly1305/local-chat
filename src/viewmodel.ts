@@ -824,20 +824,20 @@ export class ChatViewModel {
     if (this.state.recording) this.cancelRecording();
     this.revokeAttachments(this.state.composerAttachments);
     this.setState((prev) => {
-      const history = this.createHistory(prev.currentLang);
-      const histories = [history, ...prev.histories];
-      this.saveHistories(histories);
       return {
         ...prev,
-        histories,
-        activeId: history.id,
+        activeId: null,
         editingIndex: null,
         editDraft: "",
+        renameTargetId: null,
+        renameDraft: "",
+        renameSource: null,
+        statusText: "",
         composerAttachments: [],
         previewAttachment: null,
       };
     });
-    this.syncLocationWithActive(this.state.activeId);
+    this.syncLocationWithActive(null);
     this.setPromptContextState(null, null);
   };
 
