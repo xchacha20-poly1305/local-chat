@@ -1026,8 +1026,6 @@ video {
 }
 
 .title-meta,
-.chat-empty-cues,
-.chat-empty-actions,
 .composer-head,
 .settings-inline-actions,
 .export-actions,
@@ -1040,8 +1038,6 @@ video {
 }
 
 .meta-pill,
-.chat-empty-badge,
-.chat-empty-cues span,
 .composer-count,
 .translate-detected,
 .translate-copy-status {

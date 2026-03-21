@@ -951,24 +951,8 @@ const App = () => {
                   </div>
                 ) : (
                   <div className="chat-empty">
-                    <div className="chat-empty-badge">{chatViewModel.t("brandSub")}</div>
                     <h2>{chatViewModel.t("emptyTitle")}</h2>
                     <p>{chatViewModel.t("emptyBody")}</p>
-                    <div className="chat-empty-cues">
-                      <span>{chatViewModel.t("uploadFile")}</span>
-                      <span>{chatViewModel.t("attachPhoto")}</span>
-                      <span>{chatViewModel.t("attachAudio")}</span>
-                    </div>
-                    <div className="chat-empty-actions">
-                      {!active ? (
-                        <button className="btn primary" onClick={() => chatViewModel.newChat()}>
-                          {chatViewModel.t("newChat")}
-                        </button>
-                      ) : null}
-                      <a className="btn" href="./translate/">
-                        {chatViewModel.t("translate")}
-                      </a>
-                    </div>
                     <div className="chat-empty-note">{chatViewModel.t("emptyPrivacy")}</div>
                   </div>
                 )}
