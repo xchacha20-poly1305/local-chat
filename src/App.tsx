@@ -25,6 +25,7 @@ import {
   Square,
   Trash2,
   Mic,
+  ExternalLink,
   X,
 } from "lucide-react";
 import { code } from "@streamdown/code";
@@ -35,6 +36,14 @@ import CustomSelect from "./CustomSelect";
 
 const markdownPlugins = { code } as const;
 const markdownCodeThemes: ["github-light", "github-dark"] = ["github-light", "github-dark"];
+const markdownComponents = {
+  a: ({ href, children, ...props }: any) => (
+    <a href={href} {...props} target="_blank" rel="noopener noreferrer" className="markdown-link">
+      {children}
+      <ExternalLink size={14} className="markdown-link-icon" />
+    </a>
+  ),
+};
 
 type ChatMessageProps = {
   msg: Message;
@@ -171,6 +180,7 @@ const ChatMessage = memo(
               className="message-content"
               lineNumbers={false}
               plugins={markdownPlugins}
+              components={markdownComponents}
               shikiTheme={markdownCodeThemes}
             >
               {msg.content || ""}
