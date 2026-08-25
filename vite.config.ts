@@ -10,8 +10,8 @@ export default defineConfig({
     cssMinify: "esbuild", // Use "true" will lose the liquid glass
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
-        translate: resolve(__dirname, "translate/index.html"),
+        main: resolve(import.meta.dirname, "index.html"),
+        translate: resolve(import.meta.dirname, "translate/index.html"),
       },
     },
   },
